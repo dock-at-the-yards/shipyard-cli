@@ -1,0 +1,12 @@
+name: Dispatch Probe
+on:
+  push:
+    paths: [".github/workflows/dispatch-probe.yml"]
+permissions:
+  contents: read
+jobs:
+  probe:
+    name: Probe
+    runs-on: [ self-hosted, linux, ARM64, pi ]
+    steps:
+      - run: echo "cli dispatch works" && uname -a
