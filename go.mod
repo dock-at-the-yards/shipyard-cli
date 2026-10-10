@@ -1,6 +1,6 @@
 module github.com/dock-at-the-yards/shipyard-cli
 
-go 1.26.5
+go 1.26.9
 
 require (
 	github.com/dock-at-the-yards/shipyard-core v0.0.0
