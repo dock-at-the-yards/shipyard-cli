@@ -1,0 +1,449 @@
+name: Release
+
+# Releases are cut from tags, and the tag's own suffix decides the channel:
+#
+#   v1.2.3              -> stable   GitHub release + ghcr :latest, :1.2.3, :v1.2.3
+#   v1.2.3-rc.1         -> test     GitHub prerelease   + ghcr :test, :1.2.3-rc.1
+#   v0.0.0-dev.123      -> dev      GitHub prerelease   + ghcr :dev
+#
+# Tag rules (enforced below), one branch per channel:
+#   stable  v1.2.3          must be reachable from main
+#   test    v1.2.3-rc.1     must be reachable from staging
+#   dev     v0.0.0-dev.123  must be reachable from develop
+#
+# After publishing, the `dist` branch is updated so install.sh can resolve
+# each channel without a JSON parser.
+
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to publish (e.g. v0.0.1-alpha.1)'
+        required: true
+
+permissions:
+  contents: write
+  id-token: write
+  packages: write
+  # actions/attest-build-provenance needs this; without it the attestation
+  # write fails with "Resource not accessible by integration".
+  attestations: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  # Must be registry-qualified. Without the ghcr.io/ prefix, buildx resolves
+  # these tags against Docker Hub and the push fails with:
+  #   401 Unauthorized: access token has insufficient scopes
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
+  ARTIFACT_BIN: shipyard
+
+jobs:
+  # -------------------------------------------------------------- classify --
+  classify:
+    name: Classify release
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      channel: ${{ steps.meta.outputs.channel }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+      is_stable: ${{ steps.meta.outputs.is_stable }}
+      allowed_branch: ${{ steps.meta.outputs.allowed_branch }}
+      commit_sha: ${{ steps.meta.outputs.commit_sha }}
+    steps:
+      - name: Checkout CLI
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Parse and validate the tag
+        id: meta
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag || github.ref_name }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+          if ! [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)$ ]]; then
+            echo "::error::tag '$TAG' is not a valid SemVer tag (expected vMAJOR.MINOR.PATCH[-PRERELEASE])"
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          # channel is derived from the prerelease suffix
+          CHANNEL="stable"
+          PRERELEASE="false"
+          case "$VERSION" in
+            *-dev.*)  CHANNEL="dev" ;;
+            *-alpha.*|*-beta.*|*-rc.*) CHANNEL="test"; PRERELEASE="true" ;;
+            -*) echo "::error::unrecognised prerelease suffix in '$TAG' (use -alpha.N, -beta.N, -rc.N, or -dev.N)"; exit 1 ;;
+          esac
+          echo "channel=$CHANNEL"      >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "is_stable=$([ "$CHANNEL" = stable ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+          # One tier per channel. This is the mechanism that stops a stable
+          # release being cut from a branch that never went through staging.
+          if [ "$CHANNEL" = "stable" ]; then
+            echo "allowed_branch=main"    >> "$GITHUB_OUTPUT"
+          elif [ "$CHANNEL" = "test" ]; then
+            echo "allowed_branch=staging" >> "$GITHUB_OUTPUT"
+          else
+            echo "allowed_branch=develop" >> "$GITHUB_OUTPUT"
+          fi
+
+          SHA="$(git rev-list -n1 "$TAG")"
+          echo "commit_sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Enforce branch policy
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.meta.outputs.tag }}"
+          BRANCH="${{ steps.meta.outputs.allowed_branch }}"
+          git fetch origin "$BRANCH" --depth=1 || {
+            echo "::error::branch '$BRANCH' does not exist"; exit 1; }
+          if git merge-base --is-ancestor "${{ steps.meta.outputs.commit_sha }}" "origin/$BRANCH"; then
+            echo "::notice::$TAG is reachable from '$BRANCH' - policy satisfied"
+          else
+            echo "::error::$TAG is not on '$BRANCH'."
+            echo "::error::stable releases must be tagged from main;"
+            echo "::error::test releases from staging; dev releases from develop."
+            exit 1
+          fi
+
+  # ----------------------------------------------------------------- build --
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: classify
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { goos: linux,   goarch: amd64 }
+          - { goos: linux,   goarch: arm64 }
+          - { goos: darwin,  goarch: amd64 }
+          - { goos: darwin,  goarch: arm64 }
+    steps:
+      - name: Checkout CLI
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.classify.outputs.tag }}
+
+      - name: Checkout Engine (shipyard-core)
+        uses: actions/checkout@v4
+        with:
+          repository: dock-at-the-yards/shipyard-core
+          # Pinned to develop: the engine has no per-tier tags, so every
+          # CLI build tracks engine develop. Promote both repos in lockstep
+          # so release tags resolve against the intended engine state.
+          ref: develop
+          # GITHUB_TOKEN is scoped to this repository and cannot read the
+          # private engine, so a fine-grained PAT (shipyard-core, read-only)
+          # is used instead. Forks do not receive secrets.
+          token: ${{ secrets.CORE_PAT }}
+          path: shipyard-core
+
+      # actions/checkout cannot write outside the workspace, so the engine is
+      # moved up to the sibling path that the go.mod `replace` directive needs.
+      - name: Move engine to sibling directory
+        run: |
+          rm -rf "$GITHUB_WORKSPACE/../shipyard-core"
+          mv shipyard-core "$GITHUB_WORKSPACE/../shipyard-core"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.9'
+          cache: true
+          cache-dependency-path: |
+            go.sum
+
+      - name: Build hardened artifact
+        id: build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ needs.classify.outputs.version }}
+          TAG: ${{ needs.classify.outputs.tag }}
+          COMMIT: ${{ needs.classify.outputs.commit_sha }}
+          CHANNEL: ${{ needs.classify.outputs.channel }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # CGO_ENABLED=0 produces a statically linked binary. Without it the
+          # glibc-linked build cannot run in the Alpine image, and the
+          # Dockerfile's `shipyard version` gate fails with exit 133.
+          # -trimpath strips local paths, -s -w drop the symbol table and DWARF,
+          # -buildid= makes builds reproducible.
+          CGO_ENABLED=0 go build -trimpath -mod=readonly \
+            -ldflags="-s -w -buildid= \
+              -X 'github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline.Version=${VERSION}' \
+              -X 'github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline.Commit=${COMMIT}' \
+              -X 'github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline.Channel=${CHANNEL}'" \
+            -o "dist/${ARTIFACT_BIN}" ./cmd/shipyard/main.go
+
+          NAME="${ARTIFACT_BIN}-${TAG}-${GOOS}-${GOARCH}"
+          tar -czf "dist/${NAME}.tar.gz" -C dist "${ARTIFACT_BIN}"
+          rm -f "dist/${ARTIFACT_BIN}"
+          echo "name=${NAME}.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test (linux/amd64)
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        run: |
+          set -euo pipefail
+          tar -xzf "dist/${{ steps.build.outputs.name }}" -C dist
+          ./dist/${ARTIFACT_BIN} version
+          ./dist/${ARTIFACT_BIN} --help >/dev/null
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/${{ steps.build.outputs.name }}
+          retention-days: 7
+          if-no-files-found: error
+
+  # ------------------------------------------------- checksums, sbom, attest --
+  package:
+    name: Checksums, SBOM & attestation
+    needs: [ classify, build ]
+    runs-on: ubuntu-latest
+    outputs:
+      checksums: ${{ steps.sums.outputs.checksums }}
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: bin-*
+          merge-multiple: true
+
+      - name: Generate checksums
+        id: sums
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum *.tar.gz | sort -k2 > checksums.txt
+          cat checksums.txt
+          echo "checksums=checksums.txt" >> "$GITHUB_OUTPUT"
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          artifact-name: shipyard-${{ needs.classify.outputs.tag }}.sbom.spdx.json
+          output-file: dist/shipyard.sbom.spdx.json
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: dist/*.tar.gz
+
+      - name: Upload release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle
+          path: |
+            dist/*.tar.gz
+            dist/checksums.txt
+            dist/shipyard.sbom.spdx.json
+          retention-days: 30
+          if-no-files-found: error
+
+  # ------------------------------------------------------- github + registry --
+  publish:
+    name: Publish release & image
+    needs: [ classify, package ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: release-bundle
+          path: dist
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.classify.outputs.tag }}
+          name: shipyard ${{ needs.classify.outputs.version }}
+          prerelease: ${{ needs.classify.outputs.channel != 'stable' }}
+          draft: false
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/*.tar.gz
+            dist/checksums.txt
+            dist/shipyard.sbom.spdx.json
+
+      # Dev builds are cut on every push to develop, so without pruning the
+      # release list would grow without bound. Keep only the newest dev
+      # prerelease; stable and test releases are permanent.
+      - name: Prune superseded dev prereleases
+        if: needs.classify.outputs.channel == 'dev'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEEP: ${{ needs.classify.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # Deleting the release does not delete its git tag, so remove both
+          # or the tag list grows without bound.
+          gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --paginate \
+            --jq '.[] | select(.prerelease == true) | select(.tag_name | startswith("v0.0.0-dev.")) | .tag_name' \
+            | while read -r old; do
+                [ -n "$old" ] || continue
+                [ "$old" = "$KEEP" ] && continue
+                echo "::notice::deleting superseded dev release $old"
+                gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/tags/${old}" >/dev/null 2>&1 || true
+                gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/${old}" >/dev/null 2>&1 \
+                  || echo "::warning::could not delete tag $old (it may already be gone)"
+              done
+
+  image:
+    name: Publish container image
+    needs: [ classify, build ]
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Checkout CLI
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.classify.outputs.tag }}
+
+      # The image cannot compile Go: shipyard-core is private, so the module
+      # graph cannot be resolved inside the build context. The linux binaries
+      # were already cross-compiled and verified by the build job.
+      - name: Download linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bin-linux-*
+          merge-multiple: true
+          path: staged
+
+      - name: Stage binaries for the Dockerfile
+        env:
+          TAG: ${{ needs.classify.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            f="staged/shipyard-${TAG}-linux-${arch}.tar.gz"
+            [ -f "$f" ] || { echo "::error::missing $f"; exit 1; }
+            tar -xzf "$f" -C dist shipyard
+            mv dist/shipyard "dist/shipyard-linux-${arch}"
+          done
+          ls -l dist
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute tags
+        id: meta
+        env:
+          VERSION: ${{ needs.classify.outputs.version }}
+          CHANNEL: ${{ needs.classify.outputs.channel }}
+        run: |
+          set -euo pipefail
+          # docker/build-push-action splits `tags` on newlines, so each tag
+          # must be on its own line. Space-separated tags reached buildx as a
+          # single --tag argument and failed with 'invalid reference format'.
+          {
+            echo "${IMAGE_NAME}:${VERSION}"
+            case "$CHANNEL" in
+              stable) echo "${IMAGE_NAME}:latest"; echo "${IMAGE_NAME}:stable" ;;
+              test)   echo "${IMAGE_NAME}:test" ;;
+              dev)    echo "${IMAGE_NAME}:dev" ;;
+            esac
+          } > "$RUNNER_TEMP/tags.txt"
+          cat "$RUNNER_TEMP/tags.txt"
+          {
+            echo "tags<<EOF"
+            cat "$RUNNER_TEMP/tags.txt"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: |
+            org.opencontainers.image.title=shipyard
+            org.opencontainers.image.version=${{ needs.classify.outputs.version }}
+            org.opencontainers.image.revision=${{ needs.classify.outputs.commit_sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.channel=${{ needs.classify.outputs.channel }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ---------------------------------------------------- channel manifest ----
+  manifest:
+    name: Update dist channel manifest
+    needs: [ classify, package, publish ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout CLI
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Point the channel at this version
+        env:
+          CHANNEL: ${{ needs.classify.outputs.channel }}
+          TAG: ${{ needs.classify.outputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # `dist` is an orphan branch holding one file per channel, each
+          # containing a single version tag. install.sh reads it directly, so
+          # channel resolution needs no JSON parsing and no dependencies.
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git ls-remote --exit-code --heads origin dist >/dev/null 2>&1; then
+            git fetch origin dist
+            git checkout -B dist origin/dist
+          else
+            git checkout --orphan dist
+            git rm -rfq . 2>/dev/null || true
+          fi
+
+          printf '%s\n' "$TAG" > "$CHANNEL"
+          # keep a copy of the other channels so a partial write cannot wipe them
+          for c in stable test dev; do
+            [ "$c" = "$CHANNEL" ] || touch "$c"
+          done
+
+          git add -A
+          # A re-release of the same tag leaves the manifest unchanged, and
+          # `git commit` exits 1 on a clean tree. Only commit when there is
+          # actually something to record.
+          if git diff --cached --quiet; then
+            echo "::notice::dist manifest already points ${CHANNEL} at ${TAG}"
+          else
+            git commit -m "release: ${CHANNEL} -> ${TAG}"
+            git push origin dist --force
+            echo "::notice::dist manifest: ${CHANNEL}=${TAG}"
+          fi

@@ -1,0 +1,6 @@
+# Only the prebuilt binaries and the Dockerfile are needed to assemble the
+# runtime image. Nothing else belongs in the build context.
+dist/
+!dist/shipyard-linux-*
+Dockerfile
+.dockerignore

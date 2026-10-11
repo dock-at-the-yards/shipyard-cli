@@ -1,0 +1,44 @@
+name: Dev Build
+
+# Every push to develop produces an installable dev build.
+#
+# A tag is created and pushed, which in turn triggers the Release workflow.
+# That keeps a single code path for all three channels: dev builds go through
+# exactly the same pipeline as stable and test releases, just on a different
+# branch and with a -dev prerelease tag.
+#
+# The Release workflow prunes superseded dev prereleases, so the release list
+# stays bounded at one dev build plus the permanent stable/test releases.
+
+on:
+  push:
+    branches: [ develop ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dev-build
+  cancel-in-progress: true
+
+jobs:
+  tag:
+    name: Tag the commit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout CLI
+        uses: actions/checkout@v4
+
+      - name: Create a dev tag
+        run: |
+          set -euo pipefail
+          # Run number keeps tags unique and ordered even across reruns of the
+          # same commit.
+          TAG="v0.0.0-dev.${GITHUB_RUN_NUMBER}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"
+          echo "::notice::pushed $TAG, which triggers the Release workflow"

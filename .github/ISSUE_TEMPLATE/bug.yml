@@ -1,0 +1,42 @@
+name: Bug report
+description: Something does not work as documented
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security vulnerabilities should not be reported here. See
+        [SECURITY.md](../blob/main/SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `shipyard version`
+      placeholder: "shipyard 0.0.1 / channel: test"
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install?
+      options:
+        - install.sh
+        - Homebrew
+        - .deb / .rpm / Arch package
+        - Container image
+        - Built from source
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: Minimal command sequence that shows the problem.
+      render: shell

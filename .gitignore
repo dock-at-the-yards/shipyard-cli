@@ -1,0 +1,7 @@
+bin/
+tmp/
+.env
+.env.local
+*.env.local
+web/dist/
+web/node_modules/

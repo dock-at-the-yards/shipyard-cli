@@ -1,0 +1,244 @@
+name: CI
+
+# Runs on every push and pull request targeting a live branch.
+#
+#   develop  integration  dev channel
+#   staging  pre-production  test channel
+#   main     production  stable channel
+#
+# All jobs run on GitHub-hosted `ubuntu-latest` runners. No self-hosted
+# infrastructure is needed for this repository.
+
+on:
+  push:
+    branches: [ main, staging, develop ]
+  pull_request:
+    branches: [ main, staging, develop ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    # Forks receive no secrets, so the private engine cannot be fetched.
+    # Skipped there rather than red.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Checkout CLI
+        uses: actions/checkout@v4
+
+      # The evaluation engine lives in the private shipyard-core repo and is
+      # wired in through a filesystem `replace` directive, so it must be
+      # checked out as a sibling of this repository for the module to resolve.
+      - name: Checkout Engine (shipyard-core)
+        uses: actions/checkout@v4
+        with:
+          repository: dock-at-the-yards/shipyard-core
+          # Pinned to develop: the engine has no per-tier tags, so every
+          # CLI build tracks engine develop. Promote both repos in lockstep
+          # so release tags resolve against the intended engine state.
+          ref: develop
+          # GITHUB_TOKEN is scoped to this repository and cannot read the
+          # private engine, so a fine-grained PAT (shipyard-core, read-only)
+          # is used instead. Forks do not receive secrets.
+          token: ${{ secrets.CORE_PAT }}
+          path: shipyard-core
+
+      # actions/checkout cannot write outside the workspace, so the engine is
+      # moved up to the sibling path that the go.mod `replace` directive needs.
+      - name: Move engine to sibling directory
+        run: |
+          rm -rf "$GITHUB_WORKSPACE/../shipyard-core"
+          mv shipyard-core "$GITHUB_WORKSPACE/../shipyard-core"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.9'
+          cache: true
+          cache-dependency-path: |
+            go.sum
+
+      - name: Download dependencies
+        run: |
+          go mod download
+          go mod verify
+
+      - name: Check formatting
+        run: |
+          unformatted="$(gofmt -l . 2>/dev/null || true)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt needed on:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      # The hosted runner has a working Docker daemon, so the pkg/engine
+      # integration tests run for real here. `-race` stays in its own job
+      # because the detector slows the suite ~3x; running it in parallel
+      # keeps it off the critical path.
+      - name: Test
+        run: go test -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ github.run_id }}
+          path: coverage.out
+          retention-days: 7
+
+  # Runs the same suite under the race detector, in parallel with the
+  # cross-compile and installer jobs so its ~3x slowdown stays off the
+  # critical path.
+  race:
+    name: Test (race)
+    runs-on: ubuntu-latest
+    needs: verify
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Checkout CLI
+        uses: actions/checkout@v4
+
+      - name: Checkout Engine (shipyard-core)
+        uses: actions/checkout@v4
+        with:
+          repository: dock-at-the-yards/shipyard-core
+          # Pinned to develop: the engine has no per-tier tags, so every
+          # CLI build tracks engine develop. Promote both repos in lockstep
+          # so release tags resolve against the intended engine state.
+          ref: develop
+          token: ${{ secrets.CORE_PAT }}
+          path: shipyard-core
+
+      - name: Move engine to sibling directory
+        run: |
+          rm -rf "$GITHUB_WORKSPACE/../shipyard-core"
+          mv shipyard-core "$GITHUB_WORKSPACE/../shipyard-core"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.9'
+          cache: true
+          cache-dependency-path: |
+            go.sum
+
+      - name: Download dependencies
+        run: |
+          go mod download
+          go mod verify
+
+      - name: Test with the race detector
+        run: go test -race ./...
+
+  cross-compile:
+    name: Cross-compile ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    needs: verify
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { goos: linux,   goarch: amd64 }
+          - { goos: linux,   goarch: arm64 }
+          - { goos: darwin,  goarch: amd64 }
+          - { goos: darwin,  goarch: arm64 }
+    env:
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+    steps:
+      - name: Checkout CLI
+        uses: actions/checkout@v4
+
+      - name: Checkout Engine (shipyard-core)
+        uses: actions/checkout@v4
+        with:
+          repository: dock-at-the-yards/shipyard-core
+          # Pinned to develop: the engine has no per-tier tags, so every
+          # CLI build tracks engine develop. Promote both repos in lockstep
+          # so release tags resolve against the intended engine state.
+          ref: develop
+          # GITHUB_TOKEN is scoped to this repository and cannot read the
+          # private engine, so a fine-grained PAT (shipyard-core, read-only)
+          # is used instead. Forks do not receive secrets.
+          token: ${{ secrets.CORE_PAT }}
+          path: shipyard-core
+
+      - name: Move engine to sibling directory
+        run: |
+          rm -rf "$GITHUB_WORKSPACE/../shipyard-core"
+          mv shipyard-core "$GITHUB_WORKSPACE/../shipyard-core"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.9'
+          cache: true
+          cache-dependency-path: |
+            go.sum
+
+      # GOOS/GOARCH are job-level so the tarball step below can see them.
+      - name: Build
+        env:
+          VERSION: ci-${{ github.sha }}
+        run: |
+          mkdir -p bin dist
+          PKG=github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline
+          CGO_ENABLED=0 go build -trimpath \
+            -ldflags="-s -w -buildid= -X '${PKG}.Version=${VERSION}'" \
+            -o "bin/shipyard-${GOOS}-${GOARCH}" ./cmd/shipyard/main.go
+          tar -czf "dist/shipyard-${VERSION}-${GOOS}-${GOARCH}.tar.gz" \
+            -C bin "shipyard-${GOOS}-${GOARCH}"
+
+      # The host is linux/amd64, so that leg smokes natively. The arm64 and
+      # darwin legs are compile-only; release.yml re-verifies them.
+      - name: Smoke test (linux/amd64 only)
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        run: ./bin/shipyard-${{ matrix.goos }}-${{ matrix.goarch }} version
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shipyard-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+
+  installer:
+    name: Installer self-test
+    runs-on: ubuntu-latest
+    needs: verify
+    steps:
+      - name: Checkout CLI
+        uses: actions/checkout@v4
+
+      - name: Syntax check
+        run: bash -n install.sh
+
+      - name: Usage and argument validation
+        run: |
+          ./install.sh --help
+          # an unknown channel must fail loudly rather than silently defaulting
+          if ./install.sh --channel bogus; then
+            echo "::error::expected a non-zero exit for an invalid channel"; exit 1
+          fi
+          # a pinned, nonexistent version must fail with a clear message
+          if ./install.sh --version v0.0.0-does-not-exist --dry-run; then
+            echo "::error::expected a non-zero exit for a missing release"; exit 1
+          fi
+
+      - name: Shellcheck
+        if: always()
+        continue-on-error: true
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: .
+          files: install.sh

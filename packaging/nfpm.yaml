@@ -1,0 +1,49 @@
+# nfpm packaging definitions for shipyard.
+#
+# One config, every format. nfpm is a single static binary, so this runs
+# identically on the macOS runner, the Linux runner, and the Pi.
+#
+#   nfpm package --config packaging/nfpm.yaml --packager deb --target dist/
+#   nfpm package --config packaging/nfpm.yaml --packager rpm --target dist/
+#   nfpm package --config packaging/nfpm.yaml --packager apk --target dist/
+#
+# The binary is supplied as ./dist/shipyard and the version comes from
+# $VERSION, so this file never hardcodes either.
+
+name: shipyard
+arch: amd64
+platform: linux
+version: ${VERSION}
+section: devel
+priority: optional
+maintainer: Shipyard <maintainers@shipyard.dev>
+description: |
+  Evaluation harness and execution engine for autonomous AI agents.
+vendor: Shipyard
+homepage: https://github.com/dock-at-the-yards/shipyard-cli
+license: LicenseRef-Shipyard
+
+contents:
+  - src: ./dist/shipyard
+    dst: /usr/local/bin/shipyard
+    file_info:
+      mode: 0755
+
+overrides:
+  rpm:
+    # Fedora/RHEL keep binaries in /usr/bin.
+    contents:
+      - src: ./dist/shipyard
+        dst: /usr/bin/shipyard
+        file_info:
+          mode: 0755
+  # The override key is the packager's CLI name, which is `archlinux`, not
+  # `apk`. With the wrong key the default /usr/local/bin path is used and the
+  # Arch package ships the binary somewhere unconventional.
+  archlinux:
+    # Arch follows the /usr/bin convention too.
+    contents:
+      - src: ./dist/shipyard
+        dst: /usr/bin/shipyard
+        file_info:
+          mode: 0755

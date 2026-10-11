@@ -1,0 +1,278 @@
+name: Package
+
+# Builds distro packages from published release artifacts.
+#
+# Runs on GitHub-hosted `ubuntu-latest`: .deb/.rpm are Linux formats, and the
+# hosted runner has passwordless sudo for the install test. The binaries are
+# cross-compiled by ci.yml; this workflow only repackages release tarballs.
+
+on:
+  release:
+    types: [ published ]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to package (e.g. v0.0.1-alpha.1)'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  linux-packages:
+    name: deb/rpm/arch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout CLI
+        uses: actions/checkout@v4
+
+      - name: Install packaging tools
+        run: |
+          set -euo pipefail
+          # dpkg and file ship with the image; rpm and zstd do not.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rpm zstd
+          rpm --version | head -1
+
+      - name: Resolve version
+        id: ver
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          TAG="${TAG#v}"
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
+          echo "::notice::packaging $TAG"
+
+      - name: Install nfpm
+        run: |
+          set -euo pipefail
+          # The release tag carries a leading 'v'; the asset filename does not.
+          NFPM_VER=2.41.3
+          # The hosted runner is x86_64; goreleaser names that asset x86_64.
+          case "$(uname -m)" in
+            x86_64|amd64) ASSET_ARCH=x86_64 ;;
+            aarch64|arm64) ASSET_ARCH=arm64 ;;
+            *) echo "::error::unsupported arch $(uname -m)"; exit 1 ;;
+          esac
+          curl -sfL -o nfpm.tgz \
+            "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VER}/nfpm_${NFPM_VER}_Linux_${ASSET_ARCH}.tar.gz"
+          tar xzf nfpm.tgz nfpm
+          sudo install -m755 nfpm /usr/local/bin/nfpm
+          rm nfpm.tgz
+          nfpm --version | head -2
+
+      - name: Fetch linux tarballs from the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p tarballs stage
+          # Resolve asset URLs from the releases API with curl + python3.
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -o assets.json \
+               "https://api.github.com/repos/${{ github.repository }}/releases/tags/${TAG}"
+          for arch in amd64 arm64; do
+            name="shipyard-${TAG}-linux-${arch}.tar.gz"
+            url="$(python3 - assets.json "$name" <<'PY'
+          import json, sys
+          data = json.load(open(sys.argv[1]))
+          for a in data["assets"]:
+              if a["name"] == sys.argv[2]:
+                  print(a["browser_download_url"])
+                  break
+          else:
+              sys.exit("asset not found: " + sys.argv[2])
+          PY
+          )"
+            curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -o "tarballs/$name" "$url"
+            mkdir -p "stage/$arch"
+            tar xzf "tarballs/$name" -C "stage/$arch"
+            echo "== $arch"; file "stage/$arch/shipyard"
+          done
+
+      - name: Build packages
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p packages
+          # nfpm takes the arch and the binary path from the config, not from
+          # flags, so each (packager, arch) pair gets a generated config.
+          # VERSION is exported because nfpm expands ${VERSION} from the env.
+          export VERSION
+          build() {
+            local packager="$1" nfpm_arch="$2" src_arch="$3"
+            local src="stage/${src_arch}/shipyard"
+            [ -f "$src" ] || { echo "::error::no binary for ${src_arch}"; return 1; }
+            local cfg="packaging/.nfpm-${packager}-${nfpm_arch}.yaml"
+            sed -e "s|^arch: .*|arch: ${nfpm_arch}|" \
+                -e "s|src: \./dist/shipyard|src: ./${src}|" \
+                packaging/nfpm.yaml > "$cfg"
+            nfpm package --config "$cfg" --packager "$packager" --target packages
+          }
+          for arch in amd64 arm64; do
+            build deb amd64         "$arch"
+            build deb arm64         "$arch"
+            build rpm x86_64        "$arch"
+            build rpm aarch64       "$arch"
+            build archlinux x86_64  "$arch"
+            build archlinux aarch64 "$arch"
+          done
+          rm -f packaging/.nfpm-*.yaml
+          ls -la packages
+
+      - name: Verify packages
+        run: |
+          set -euo pipefail
+          fail=0
+          n=0
+          # Match without `grep -q`: it exits on first match, the producer
+          # takes SIGPIPE, and `set -o pipefail` turns that into a false
+          # failure (exit 141). Capture the listing first, then grep it.
+          has() { grep -qE "$2" <<<"$1"; }
+
+          for deb in packages/*.deb; do
+            n=$((n+1))
+            listing="$(dpkg-deb -c "$deb")" || { echo "FAIL unreadable: $deb"; fail=1; continue; }
+            has "$listing" 'usr/local/bin/shipyard' || { echo "FAIL contents: $deb"; fail=1; }
+          done
+          for rpm in packages/*.rpm; do
+            n=$((n+1))
+            listing="$(rpm -qlp "$rpm" 2>/dev/null)" || { echo "FAIL unreadable: $rpm"; fail=1; continue; }
+            has "$listing" 'usr/bin/shipyard' || { echo "FAIL contents: $rpm"; fail=1; }
+          done
+          for pkg in packages/*.pkg.tar.zst; do
+            n=$((n+1))
+            listing="$(zstd -dc "$pkg" 2>/dev/null | tar tf - 2>/dev/null)" || { echo "FAIL unreadable: $pkg"; fail=1; continue; }
+            has "$listing" 'usr/bin/shipyard' || { echo "FAIL contents: $pkg"; fail=1; }
+          done
+          echo "verified $n packages"
+          exit $fail
+
+      - name: Install-test the deb
+        run: |
+          set -euo pipefail
+          # Install the deb matching the runner's own architecture; dpkg
+          # refuses a foreign-arch package. The hosted runner is x86_64, so
+          # this executes the amd64 artifact natively — coverage the Pi
+          # could never provide.
+          case "$(uname -m)" in
+            x86_64) HOST_DEB=amd64 ;;
+            aarch64|arm64) HOST_DEB=arm64 ;;
+            *) echo "::error::unsupported runner arch $(uname -m)"; exit 1 ;;
+          esac
+          # find, not a glob: the version contains '~' (0.0.1~alpha.1) and the
+          # shell tilde-expands inside an unquoted glob, so 'ls packages/*_arm64.deb'
+          # reports no such file even though it is right there.
+          deb="$(find packages -name "*_${HOST_DEB}.deb" | head -1)"
+          echo "installing $deb on $(uname -m)"
+          sudo dpkg -i "$deb"
+          command -v shipyard
+          shipyard version
+          sudo dpkg -r shipyard
+          echo "install/uninstall OK"
+
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          cd packages
+          ( sha256sum *.deb *.rpm *.pkg.tar.zst 2>/dev/null || shasum -a 256 * ) > checksums.txt
+          cat checksums.txt
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: packages/*
+          if-no-files-found: error
+
+  homebrew:
+    name: Homebrew formula
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout CLI
+        uses: actions/checkout@v4
+
+      - name: Download darwin tarballs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p src
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -o assets.json \
+               "https://api.github.com/repos/${{ github.repository }}/releases/tags/${TAG}"
+          for a in arm64 amd64; do
+            name="shipyard-${TAG}-darwin-${a}.tar.gz"
+            url="$(python3 - assets.json "$name" <<'PY'
+          import json, sys
+          data = json.load(open(sys.argv[1]))
+          for asset in data["assets"]:
+              if asset["name"] == sys.argv[2]:
+                  print(asset["browser_download_url"])
+                  break
+          else:
+              sys.exit("asset not found: " + sys.argv[2])
+          PY
+          )"
+            curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -o "src/$name" "$url"
+          done
+          ls -la src
+
+      - name: Generate and verify the formula
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          V="${TAG#v}"
+          ARM_SHA=$(shasum -a 256 "src/shipyard-${TAG}-darwin-arm64.tar.gz" | cut -d' ' -f1)
+          AMD_SHA=$(shasum -a 256 "src/shipyard-${TAG}-darwin-amd64.tar.gz" | cut -d' ' -f1)
+          cat > shipyard.rb <<EOF
+          class Shipyard < Formula
+            desc "Evaluation harness and execution engine for autonomous AI agents"
+            homepage "https://github.com/dock-at-the-yards/shipyard-cli"
+            version "${V}"
+            license "LicenseRef-Shipyard"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/dock-at-the-yards/shipyard-cli/releases/download/${TAG}/shipyard-${TAG}-darwin-arm64.tar.gz"
+                sha256 "${ARM_SHA}"
+              else
+                url "https://github.com/dock-at-the-yards/shipyard-cli/releases/download/${TAG}/shipyard-${TAG}-darwin-amd64.tar.gz"
+                sha256 "${AMD_SHA}"
+              end
+            end
+
+            def install
+              if Hardware::CPU.arm?
+                bin.install "shipyard-${TAG}-darwin-arm64/shipyard" => "shipyard"
+              else
+                bin.install "shipyard-${TAG}-darwin-amd64/shipyard" => "shipyard"
+              end
+            end
+
+            test do
+              assert_match "shipyard version", shell_output("#{bin}/shipyard version")
+            end
+          end
+          EOF
+          echo "--- generated formula ---"
+          cat shipyard.rb
+          # Verify both tarballs contain the binary the formula expects.
+          for a in arm64 amd64; do
+            tar tzf "src/shipyard-${TAG}-darwin-${a}.tar.gz" | grep -q shipyard \
+              || { echo "::error::darwin/${a} tarball has no binary"; exit 1; }
+          done
+
+      - name: Upload formula
+        uses: actions/upload-artifact@v4
+        with:
+          name: homebrew-formula
+          path: shipyard.rb
+          if-no-files-found: error
