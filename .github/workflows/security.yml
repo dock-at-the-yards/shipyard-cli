@@ -15,24 +15,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # CodeQL stays on a GitHub-hosted runner. The analysis bundle is roughly a
-  # gigabyte and self-hosted CodeQL wants its own database directory and disk
-  # headroom, which is a poor trade on a Pi that also runs the test suite.
+  # CodeQL runs on a GitHub-hosted runner, like everything else here.
   codeql:
     name: CodeQL
     runs-on: ubuntu-latest
     steps:
-      # See build-mbp.yml: the engine checkout exports GIT_SSH_COMMAND for the
-      # whole job, which then leaks into the HTTPS CLI checkout and fails with
-      # 'Host key verification failed'. A stable known_hosts avoids the
-      # ordering dependency.
-      - name: Set up known_hosts
-        run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
-          sort -u ~/.ssh/known_hosts -o ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
-
       - name: Checkout CLI
         uses: actions/checkout@v4
 
@@ -49,32 +36,24 @@ jobs:
 
   govulncheck:
     name: govulncheck
-    runs-on: [ self-hosted, linux, ARM64, pi ]
+    runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
-      # See build-mbp.yml: the engine checkout exports GIT_SSH_COMMAND for the
-      # whole job, which then leaks into the HTTPS CLI checkout and fails with
-      # 'Host key verification failed'. A stable known_hosts avoids the
-      # ordering dependency.
-      - name: Set up known_hosts
-        run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
-          sort -u ~/.ssh/known_hosts -o ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
-
       - name: Checkout CLI
         uses: actions/checkout@v4
 
       - name: Checkout Engine (shipyard-core)
         uses: actions/checkout@v4
         with:
-          repository: shivam-jainn/shipyard-core
+          repository: dock-at-the-yards/shipyard-core
+          # Pinned to develop: the engine has no per-tier tags, so every
+          # CLI build tracks engine develop. Promote both repos in lockstep
+          # so release tags resolve against the intended engine state.
+          ref: develop
           # GITHUB_TOKEN is scoped to this repository and cannot read the
-          # private engine, so a read-only deploy key is used instead of a PAT.
-          # Forks do not receive secrets, hence the empty-string fallback.
-          ssh-key: ${{ secrets.CORE_SSH_KEY }}
-          ssh-strict: false
+          # private engine, so a fine-grained PAT (shipyard-core, read-only)
+          # is used instead. Forks do not receive secrets.
+          token: ${{ secrets.CORE_PAT }}
           path: shipyard-core
 
       # actions/checkout cannot write outside the workspace, so the engine is
@@ -87,9 +66,22 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.26.8'
+          go-version: '1.26.9'
+          cache: true
+          cache-dependency-path: |
+            go.sum
+
+      # The scanner binary changes rarely; cache it instead of rebuilding
+      # from the network on every run.
+      - name: Restore govulncheck
+        id: cache-govulncheck
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin/govulncheck
+          key: govulncheck-1.26.9
 
       - name: Install govulncheck
+        if: steps.cache-govulncheck.outputs.cache-hit != 'true'
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
 
       - name: Scan

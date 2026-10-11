@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/shivam-jainn/shipyard-cli/cmd/cmdline/commands"
-	"github.com/shivam-jainn/shipyard-core/pkg/scaffolder"
+	"github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands"
+	"github.com/dock-at-the-yards/shipyard-core/pkg/scaffolder"
 
 	"github.com/spf13/cobra"
 )

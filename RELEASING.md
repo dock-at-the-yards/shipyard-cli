@@ -48,11 +48,11 @@ reach `main` directly.
 ```bash
 # 1. develop -> staging, which publishes the test channel
 git checkout develop && git pull
-gh workflow run promote.yml --repo shivam-jainn/shipyard-cli -f target=staging
+gh workflow run promote.yml --repo dock-at-the-yards/shipyard-cli -f target=staging
 
 # 2. staging -> main. Pass the version, or leave it blank to use the VERSION
 #    file on staging. Only stable MAJOR.MINOR.PATCH is accepted here.
-gh workflow run promote.yml --repo shivam-jainn/shipyard-cli \
+gh workflow run promote.yml --repo dock-at-the-yards/shipyard-cli \
   -f target=production -f version=0.0.1
 
 # add -f dry_run=true to open the PR without merging
@@ -101,14 +101,14 @@ git push origin v0.0.0-dev.42
 
 ```bash
 # production
-curl -fsSL https://raw.githubusercontent.com/shivam-jainn/shipyard-cli/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/dock-at-the-yards/shipyard-cli/main/install.sh | sh
 
 # specific channel
-curl -fsSL https://raw.githubusercontent.com/shivam-jainn/shipyard-cli/main/install.sh \
+curl -fsSL https://raw.githubusercontent.com/dock-at-the-yards/shipyard-cli/main/install.sh \
   | sh -s -- --channel test
 
 # pinned, for production
-curl -fsSL https://raw.githubusercontent.com/shivam-jainn/shipyard-cli/main/install.sh \
+curl -fsSL https://raw.githubusercontent.com/dock-at-the-yards/shipyard-cli/main/install.sh \
   | sh -s -- --version v0.0.1
 ```
 

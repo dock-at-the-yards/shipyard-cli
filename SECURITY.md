@@ -6,7 +6,7 @@ Please **do not open a public issue** for a security vulnerability.
 
 Report it privately via GitHub's security advisory form:
 
-<https://github.com/shivam-jainn/shipyard-cli/security/advisories/new>
+<https://github.com/dock-at-the-yards/shipyard-cli/security/advisories/new>
 
 Include the affected version or image tag, what you observed, and how to
 reproduce it. You can expect an acknowledgement within a few days.
@@ -57,7 +57,7 @@ sha256sum -c checksums.txt
 
 ```bash
 # Confirm the image you pulled is the one that was published
-docker buildx imagetools inspect ghcr.io/shivam-jainn/shipyard-cli:test
+docker buildx imagetools inspect ghcr.io/dock-at-the-yards/shipyard-cli:test
 ```
 
 If a checksum does not match, do not run the binary. Re-download it and

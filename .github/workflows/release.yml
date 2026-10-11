@@ -57,17 +57,6 @@ jobs:
       allowed_branch: ${{ steps.meta.outputs.allowed_branch }}
       commit_sha: ${{ steps.meta.outputs.commit_sha }}
     steps:
-      # See build-mbp.yml: the engine checkout exports GIT_SSH_COMMAND for the
-      # whole job, which then leaks into the HTTPS CLI checkout and fails with
-      # 'Host key verification failed'. A stable known_hosts avoids the
-      # ordering dependency.
-      - name: Set up known_hosts
-        run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
-          sort -u ~/.ssh/known_hosts -o ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
-
       - name: Checkout CLI
         uses: actions/checkout@v4
         with:
@@ -135,7 +124,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - { goos: linux,   goarch: amd64 }
@@ -143,17 +132,6 @@ jobs:
           - { goos: darwin,  goarch: amd64 }
           - { goos: darwin,  goarch: arm64 }
     steps:
-      # See build-mbp.yml: the engine checkout exports GIT_SSH_COMMAND for the
-      # whole job, which then leaks into the HTTPS CLI checkout and fails with
-      # 'Host key verification failed'. A stable known_hosts avoids the
-      # ordering dependency.
-      - name: Set up known_hosts
-        run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
-          sort -u ~/.ssh/known_hosts -o ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
-
       - name: Checkout CLI
         uses: actions/checkout@v4
         with:
@@ -162,12 +140,15 @@ jobs:
       - name: Checkout Engine (shipyard-core)
         uses: actions/checkout@v4
         with:
-          repository: shivam-jainn/shipyard-core
+          repository: dock-at-the-yards/shipyard-core
+          # Pinned to develop: the engine has no per-tier tags, so every
+          # CLI build tracks engine develop. Promote both repos in lockstep
+          # so release tags resolve against the intended engine state.
+          ref: develop
           # GITHUB_TOKEN is scoped to this repository and cannot read the
-          # private engine, so a read-only deploy key is used instead of a PAT.
-          # Forks do not receive secrets, hence the empty-string fallback.
-          ssh-key: ${{ secrets.CORE_SSH_KEY }}
-          ssh-strict: false
+          # private engine, so a fine-grained PAT (shipyard-core, read-only)
+          # is used instead. Forks do not receive secrets.
+          token: ${{ secrets.CORE_PAT }}
           path: shipyard-core
 
       # actions/checkout cannot write outside the workspace, so the engine is
@@ -180,7 +161,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.26.8'
+          go-version: '1.26.9'
+          cache: true
+          cache-dependency-path: |
+            go.sum
 
       - name: Build hardened artifact
         id: build
@@ -201,9 +185,9 @@ jobs:
           # -buildid= makes builds reproducible.
           CGO_ENABLED=0 go build -trimpath -mod=readonly \
             -ldflags="-s -w -buildid= \
-              -X 'github.com/shivam-jainn/shipyard-cli/cmd/cmdline.Version=${VERSION}' \
-              -X 'github.com/shivam-jainn/shipyard-cli/cmd/cmdline.Commit=${COMMIT}' \
-              -X 'github.com/shivam-jainn/shipyard-cli/cmd/cmdline.Channel=${CHANNEL}'" \
+              -X 'github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline.Version=${VERSION}' \
+              -X 'github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline.Commit=${COMMIT}' \
+              -X 'github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline.Channel=${CHANNEL}'" \
             -o "dist/${ARTIFACT_BIN}" ./cmd/shipyard/main.go
 
           NAME="${ARTIFACT_BIN}-${TAG}-${GOOS}-${GOARCH}"
@@ -330,17 +314,6 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
-      # See build-mbp.yml: the engine checkout exports GIT_SSH_COMMAND for the
-      # whole job, which then leaks into the HTTPS CLI checkout and fails with
-      # 'Host key verification failed'. A stable known_hosts avoids the
-      # ordering dependency.
-      - name: Set up known_hosts
-        run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
-          sort -u ~/.ssh/known_hosts -o ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
-
       - name: Checkout CLI
         uses: actions/checkout@v4
         with:
@@ -431,17 +404,6 @@ jobs:
     needs: [ classify, package, publish ]
     runs-on: ubuntu-latest
     steps:
-      # See build-mbp.yml: the engine checkout exports GIT_SSH_COMMAND for the
-      # whole job, which then leaks into the HTTPS CLI checkout and fails with
-      # 'Host key verification failed'. A stable known_hosts avoids the
-      # ordering dependency.
-      - name: Set up known_hosts
-        run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
-          sort -u ~/.ssh/known_hosts -o ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
-
       - name: Checkout CLI
         uses: actions/checkout@v4
         with:

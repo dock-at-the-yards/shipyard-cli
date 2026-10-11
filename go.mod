@@ -1,9 +1,9 @@
-module github.com/shivam-jainn/shipyard-cli
+module github.com/dock-at-the-yards/shipyard-cli
 
-go 1.26.5
+go 1.26.9
 
 require (
-	github.com/shivam-jainn/shipyard-core v0.0.0
+	github.com/dock-at-the-yards/shipyard-core v0.0.0
 	github.com/spf13/cobra v1.10.2
 )
 
@@ -15,4 +15,4 @@ require (
 
 // The engine is developed in the adjacent shipyard-core repository. Until
 // shipyard-core is tagged, resolve it from the local checkout.
-replace github.com/shivam-jainn/shipyard-core => ../shipyard-core
+replace github.com/dock-at-the-yards/shipyard-core => ../shipyard-core

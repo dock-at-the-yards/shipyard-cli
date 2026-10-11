@@ -1,7 +1,7 @@
 BINARY_NAME := shipyard
 CMD_DIR := ./cmd/shipyard
 BIN_DIR := bin
-PKG := github.com/shivam-jainn/shipyard-cli/cmd/cmdline
+PKG := github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline
 
 # Platform / Architecture configuration (defaults to host arch/os)
 GOOS ?= $(shell go env GOOS)
@@ -94,7 +94,7 @@ release-snapshot:
 
 ## install-script: Install from the published release, exercising install.sh
 install-script:
-	@curl -fsSL https://raw.githubusercontent.com/shivam-jainn/shipyard-cli/main/install.sh \
+	@curl -fsSL https://raw.githubusercontent.com/dock-at-the-yards/shipyard-cli/main/install.sh \
 		| sh -s -- --channel $(CHANNEL)
 
 # --------------------------------------------------------------------- test --
@@ -113,7 +113,7 @@ fmt:
 
 # ------------------------------------------------------------------- docker --
 
-DOCKER_IMAGE ?= ghcr.io/shivam-jainn/shipyard-cli
+DOCKER_IMAGE ?= ghcr.io/dock-at-the-yards/shipyard-cli
 DOCKER_TAG   ?= $(CHANNEL)
 
 ## docker-build: Build the runtime image locally from a locally built binary

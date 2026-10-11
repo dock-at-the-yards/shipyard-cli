@@ -7,7 +7,7 @@
 # `go install`. Distribution is exclusively through signed, checksummed
 # release artifacts and the GHCR container image.
 #
-#   curl -fsSL https://raw.githubusercontent.com/shivam-jainn/shipyard-cli/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/dock-at-the-yards/shipyard-cli/main/install.sh | sh
 #
 # Channels:
 #   stable (default)  latest non-prerelease          v0.0.1
@@ -25,7 +25,7 @@
 
 set -euo pipefail
 
-REPO="shivam-jainn/shipyard-cli"
+REPO="dock-at-the-yards/shipyard-cli"
 GITHUB_API="https://api.github.com"
 DEFAULT_CHANNEL="stable"
 BINARY="shipyard"

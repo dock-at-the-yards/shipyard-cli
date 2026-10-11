@@ -20,7 +20,7 @@ maintainer: Shipyard <maintainers@shipyard.dev>
 description: |
   Evaluation harness and execution engine for autonomous AI agents.
 vendor: Shipyard
-homepage: https://github.com/shivam-jainn/shipyard-cli
+homepage: https://github.com/dock-at-the-yards/shipyard-cli
 license: LicenseRef-Shipyard
 
 contents:
