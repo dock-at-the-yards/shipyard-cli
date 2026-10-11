@@ -40,6 +40,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: dock-at-the-yards/shipyard-core
+          # Pinned to develop: the engine has no per-tier tags, so every
+          # CLI build tracks engine develop. Promote both repos in lockstep
+          # so release tags resolve against the intended engine state.
+          ref: develop
           # GITHUB_TOKEN is scoped to this repository and cannot read the
           # private engine, so a fine-grained PAT (shipyard-core, read-only)
           # is used instead. Forks do not receive secrets.
@@ -107,6 +111,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: dock-at-the-yards/shipyard-core
+          # Pinned to develop: the engine has no per-tier tags, so every
+          # CLI build tracks engine develop. Promote both repos in lockstep
+          # so release tags resolve against the intended engine state.
+          ref: develop
           token: ${{ secrets.CORE_PAT }}
           path: shipyard-core
 
@@ -155,6 +163,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: dock-at-the-yards/shipyard-core
+          # Pinned to develop: the engine has no per-tier tags, so every
+          # CLI build tracks engine develop. Promote both repos in lockstep
+          # so release tags resolve against the intended engine state.
+          ref: develop
           # GITHUB_TOKEN is scoped to this repository and cannot read the
           # private engine, so a fine-grained PAT (shipyard-core, read-only)
           # is used instead. Forks do not receive secrets.
