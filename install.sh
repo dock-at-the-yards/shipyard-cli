@@ -255,7 +255,9 @@ Check that a release exists for ${VERSION} on the '${CHANNEL}' channel."
   fi
 
   if [ -e "$dir/$BINARY" ] && [ "$ASSUME_YES" != "1" ] && [ ! -t 0 ]; then
-    die "$dir/$BINARY already exists. Re-run with --yes to overwrite."
+    die "$dir/$BINARY already exists. Re-run with --yes passed to the script:
+
+  curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | sh -s -- --yes"
   fi
 
   log "Installing to $dir/$BINARY..."
