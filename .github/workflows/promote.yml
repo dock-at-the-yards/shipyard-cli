@@ -36,6 +36,9 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # The merge step polls statusCheckRollup for the gates; without this the
+  # query fails with "Resource not accessible by integration".
+  checks: read
 
 concurrency:
   group: promote-${{ inputs.target }}
