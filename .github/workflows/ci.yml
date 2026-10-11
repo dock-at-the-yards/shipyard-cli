@@ -6,9 +6,8 @@ name: CI
 #   staging  pre-production  test channel
 #   main     production  stable channel
 #
-# All jobs run on the Raspberry Pi (`self-hosted, linux, ARM64, pi`) except the
-# race job, which has no choice but to stay on a GitHub-hosted runner: see the
-# note on the `race` job below.
+# All jobs run on GitHub-hosted `ubuntu-latest` runners. No self-hosted
+# infrastructure is needed for this repository.
 
 on:
   push:
@@ -26,7 +25,7 @@ concurrency:
 jobs:
   verify:
     name: Build & Test
-    runs-on: [ self-hosted, linux, ARM64, pi ]
+    runs-on: ubuntu-latest
     # Forks receive no secrets, so the private engine cannot be fetched.
     # Skipped there rather than red.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -54,15 +53,6 @@ jobs:
           rm -rf "$GITHUB_WORKSPACE/../shipyard-core"
           mv shipyard-core "$GITHUB_WORKSPACE/../shipyard-core"
 
-      # Must run before setup-go: the cache restore extracts into GOMODCACHE,
-      # and if that resolves to the Pi's real ~/go/pkg/mod the restore fails
-      # with "Can't unlink already-existing object: Permission denied".
-      - name: Isolate the Go module cache
-        run: |
-          mkdir -p "$RUNNER_TEMP/gomodcache" "$RUNNER_TEMP/gocache"
-          echo "GOMODCACHE=$RUNNER_TEMP/gomodcache" >> "$GITHUB_ENV"
-          echo "GOCACHE=$RUNNER_TEMP/gocache" >> "$GITHUB_ENV"
-
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -86,8 +76,10 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      # The Pi has a working Docker daemon, so the pkg/engine integration tests
-      # run for real here. `-race` is deliberately absent; see the race job.
+      # The hosted runner has a working Docker daemon, so the pkg/engine
+      # integration tests run for real here. `-race` stays in its own job
+      # because the detector slows the suite ~3x; running it in parallel
+      # keeps it off the critical path.
       - name: Test
         run: go test -coverprofile=coverage.out -covermode=atomic ./...
 
@@ -99,16 +91,9 @@ jobs:
           path: coverage.out
           retention-days: 7
 
-  # Kept on a GitHub-hosted runner because the race detector cannot start on the
-  # Pi at all:
-  #
-  #   ThreadSanitizer: unsupported VMA range
-  #   FATAL: Found 47 - Supported 48
-  #
-  # That is the arm64 kernel's 48-bit VA layout producing more memory regions
-  # than the sanitizer's shadow mapping supports, and it is not something a
-  # runner-side setting can change. Every other job runs on the Pi; this one is
-  # the single GitHub-hosted exception in the repository.
+  # Runs the same suite under the race detector, in parallel with the
+  # cross-compile and installer jobs so its ~3x slowdown stays off the
+  # critical path.
   race:
     name: Test (race)
     runs-on: ubuntu-latest
@@ -148,11 +133,11 @@ jobs:
 
   cross-compile:
     name: Cross-compile ${{ matrix.goos }}/${{ matrix.goarch }}
-    runs-on: [ self-hosted, linux, ARM64, pi ]
+    runs-on: ubuntu-latest
     needs: verify
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - { goos: linux,   goarch: amd64 }
@@ -181,39 +166,43 @@ jobs:
           rm -rf "$GITHUB_WORKSPACE/../shipyard-core"
           mv shipyard-core "$GITHUB_WORKSPACE/../shipyard-core"
 
-      - name: Isolate the Go module cache
-        run: |
-          mkdir -p "$RUNNER_TEMP/gomodcache" "$RUNNER_TEMP/gocache"
-          echo "GOMODCACHE=$RUNNER_TEMP/gomodcache" >> "$GITHUB_ENV"
-          echo "GOCACHE=$RUNNER_TEMP/gocache" >> "$GITHUB_ENV"
-
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.26.9'
+          cache: true
+          cache-dependency-path: |
+            go.sum
 
-      # GOOS/GOARCH are job-level so the smoke test below can see them; as
-      # step-level env they were empty in that step, resolving the binary to
-      # the literal path ./bin/shipyard--.
+      # GOOS/GOARCH are job-level so the tarball step below can see them.
       - name: Build
         env:
           VERSION: ci-${{ github.sha }}
         run: |
-          mkdir -p bin
+          mkdir -p bin dist
+          PKG=github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline
           CGO_ENABLED=0 go build -trimpath \
-            -ldflags="-s -w -buildid= -X 'github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline.Version=${VERSION}'" \
+            -ldflags="-s -w -buildid= -X '${PKG}.Version=${VERSION}'" \
             -o "bin/shipyard-${GOOS}-${GOARCH}" ./cmd/shipyard/main.go
+          tar -czf "dist/shipyard-${VERSION}-${GOOS}-${GOARCH}.tar.gz" \
+            -C bin "shipyard-${GOOS}-${GOARCH}"
 
-      # Only the natively-built binary can execute. The matrix builds amd64
-      # artifacts from an arm64 host, and those cannot be run here (and QEMU is
-      # not registered on the runner), so the gate is on the arm64 leg.
-      - name: Smoke test (native platform only)
-        if: matrix.goos == 'linux' && matrix.goarch == 'arm64'
+      # The host is linux/amd64, so that leg smokes natively. The arm64 and
+      # darwin legs are compile-only; release.yml re-verifies them.
+      - name: Smoke test (linux/amd64 only)
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
         run: ./bin/shipyard-${{ matrix.goos }}-${{ matrix.goarch }} version
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shipyard-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
 
   installer:
     name: Installer self-test
-    runs-on: [ self-hosted, linux, ARM64, pi ]
+    runs-on: ubuntu-latest
     needs: verify
     steps:
       - name: Checkout CLI

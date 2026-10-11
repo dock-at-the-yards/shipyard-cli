@@ -2,12 +2,9 @@ name: Package
 
 # Builds distro packages from published release artifacts.
 #
-# Runs on the self-hosted Linux runner (`shipyard-linux`) because .deb/.rpm are
-# Linux formats: a macOS host cannot meaningfully build or install-test them.
-# The binaries themselves are cross-compiled on the Pi by build-mbp.yml.
-#
-# Swapping this VM for the Pi needs no edit here: the job selects on the
-# `packaging` label. See docs/RUNNERS.md.
+# Runs on GitHub-hosted `ubuntu-latest`: .deb/.rpm are Linux formats, and the
+# hosted runner has passwordless sudo for the install test. The binaries are
+# cross-compiled by ci.yml; this workflow only repackages release tarballs.
 
 on:
   release:
@@ -28,12 +25,18 @@ concurrency:
 jobs:
   linux-packages:
     name: deb/rpm/arch
-    runs-on: [ self-hosted, linux-build, packaging ]
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout CLI
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+
+      - name: Install packaging tools
+        run: |
+          set -euo pipefail
+          # dpkg and file ship with the image; rpm and zstd do not.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rpm zstd
+          rpm --version | head -1
 
       - name: Resolve version
         id: ver
@@ -50,7 +53,7 @@ jobs:
           set -euo pipefail
           # The release tag carries a leading 'v'; the asset filename does not.
           NFPM_VER=2.41.3
-          # uname -m reports aarch64, but goreleaser names the asset arm64.
+          # The hosted runner is x86_64; goreleaser names that asset x86_64.
           case "$(uname -m)" in
             x86_64|amd64) ASSET_ARCH=x86_64 ;;
             aarch64|arm64) ASSET_ARCH=arm64 ;;
@@ -70,9 +73,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p tarballs stage
-          # The Linux runner has no gh CLI, so resolve asset URLs from the
-          # releases API with curl + python3. Keeps the runner dependency-free,
-          # which also matters for a Pi.
+          # Resolve asset URLs from the releases API with curl + python3.
           curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -o assets.json \
                "https://api.github.com/repos/${{ github.repository }}/releases/tags/${TAG}"
           for arch in amd64 arm64; do
@@ -157,17 +158,18 @@ jobs:
         run: |
           set -euo pipefail
           # Install the deb matching the runner's own architecture; dpkg
-          # refuses a foreign-arch package, and a Pi/arm64 runner would fail
-          # an amd64-only install test.
+          # refuses a foreign-arch package. The hosted runner is x86_64, so
+          # this executes the amd64 artifact natively — coverage the Pi
+          # could never provide.
           case "$(uname -m)" in
-            x86_64) HOST_DEB_AMD=amd64; HOST_DEB_ARM=amd64 ;;
-            aarch64|arm64) HOST_DEB_AMD=arm64; HOST_DEB_ARM=arm64 ;;
+            x86_64) HOST_DEB=amd64 ;;
+            aarch64|arm64) HOST_DEB=arm64 ;;
             *) echo "::error::unsupported runner arch $(uname -m)"; exit 1 ;;
           esac
           # find, not a glob: the version contains '~' (0.0.1~alpha.1) and the
           # shell tilde-expands inside an unquoted glob, so 'ls packages/*_arm64.deb'
           # reports no such file even though it is right there.
-          deb="$(find packages -name "*_${HOST_DEB_ARM}.deb" | head -1)"
+          deb="$(find packages -name "*_${HOST_DEB}.deb" | head -1)"
           echo "installing $deb on $(uname -m)"
           sudo dpkg -i "$deb"
           command -v shipyard
@@ -191,7 +193,7 @@ jobs:
 
   homebrew:
     name: Homebrew formula
-    runs-on: [ self-hosted, linux, ARM64, pi ]
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout CLI
         uses: actions/checkout@v4

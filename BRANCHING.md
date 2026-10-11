@@ -114,31 +114,19 @@ CI runs on every push and pull request targeting `develop`, `staging` or `main`.
 
 | Workflow | Runs on | Notes |
 |---|---|---|
-| `ci.yml` | Pi | build, vet, format, test, cross-compile, installer self-test |
-| `ci.yml` (`race` job) | GitHub-hosted | see below |
-| `security.yml` | Pi + GitHub-hosted | CodeQL hosted, govulncheck on the Pi |
-| `build-mbp.yml` | MacBook Pro | darwin binaries and Homebrew formula |
-| `package.yml` | Pi + MacBook Pro | `.deb`/`.rpm`/Arch on the Pi, Homebrew on the Mac |
+| `ci.yml` | GitHub-hosted | build, vet, format, test, cross-compile + artifacts, installer self-test |
+| `security.yml` | GitHub-hosted | CodeQL analysis and govulncheck |
+| `package.yml` | GitHub-hosted | `.deb`/`.rpm`/Arch and Homebrew formula |
 | `release.yml` | GitHub-hosted | multi-arch image builds need QEMU |
 
-### The one job that cannot run on the Pi
+### Why race is its own job
 
-`go test -race` fails on the Pi before it runs a single test:
+The race detector slows the suite ~3x, so `go test -race` runs in parallel
+with cross-compile and installer instead of inside the main test job — its
+slowness stays off the critical path.
 
-```
-ThreadSanitizer: unsupported VMA range
-FATAL: Found 47 - Supported 48
-```
-
-That is the arm64 kernel's 48-bit virtual address layout producing more memory
-regions than the race detector's shadow mapping has room for. It is a property of
-the kernel, not of the runner configuration, so no amount of tuning on the Pi
-fixes it. The race job therefore stays on a GitHub-hosted `ubuntu-latest`
-runner. Every other job in the repository runs on the Pi.
-
-This is also why the cross-compile smoke test runs on the `linux/arm64` leg: the
-matrix builds `linux/amd64` from an arm64 host, and that binary cannot execute
-here without QEMU.
+The cross-compile smoke test runs on the `linux/amd64` leg, which executes
+natively on the hosted runner; the arm64 and darwin legs are compile-only.
 
 ## Branch protection
 
