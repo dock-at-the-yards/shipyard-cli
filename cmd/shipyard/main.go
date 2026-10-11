@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/shivam-jainn/shipyard-cli/cmd/cmdline"
+	"github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline"
 )
 
 func main() {

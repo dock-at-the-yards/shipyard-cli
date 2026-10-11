@@ -8,10 +8,10 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/shivam-jainn/shipyard-cli/cmd/cmdline/commands"
-	_ "github.com/shivam-jainn/shipyard-cli/cmd/cmdline/commands/init"
-	_ "github.com/shivam-jainn/shipyard-cli/cmd/cmdline/commands/run"
-	shiperrs "github.com/shivam-jainn/shipyard-core/pkg/errors"
+	"github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands"
+	_ "github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands/init"
+	_ "github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands/run"
+	shiperrs "github.com/dock-at-the-yards/shipyard-core/pkg/errors"
 
 	"github.com/spf13/cobra"
 )

@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shivam-jainn/shipyard-cli/cmd/cmdline/commands"
-	initcmd "github.com/shivam-jainn/shipyard-cli/cmd/cmdline/commands/init"
-	"github.com/shivam-jainn/shipyard-core/pkg/scaffolder"
+	"github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands"
+	initcmd "github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands/init"
+	"github.com/dock-at-the-yards/shipyard-core/pkg/scaffolder"
 
 	"github.com/spf13/cobra"
 )

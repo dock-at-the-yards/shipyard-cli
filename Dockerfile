@@ -16,7 +16,7 @@ FROM alpine:3.20
 LABEL org.opencontainers.image.title="shipyard" \
       org.opencontainers.image.description="Evaluation harness and execution engine for autonomous AI agents" \
       org.opencontainers.image.licenses="LicenseRef-Shipyard" \
-      org.opencontainers.image.source="https://github.com/shivam-jainn/shipyard-cli"
+      org.opencontainers.image.source="https://github.com/dock-at-the-yards/shipyard-cli"
 
 RUN apk add --no-cache \
       bash \

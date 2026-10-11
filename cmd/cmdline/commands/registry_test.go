@@ -3,9 +3,9 @@ package commands_test
 import (
 	"testing"
 
-	"github.com/shivam-jainn/shipyard-cli/cmd/cmdline/commands"
-	_ "github.com/shivam-jainn/shipyard-cli/cmd/cmdline/commands/init"
-	_ "github.com/shivam-jainn/shipyard-cli/cmd/cmdline/commands/run"
+	"github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands"
+	_ "github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands/init"
+	_ "github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands/run"
 )
 
 func TestRegistry(t *testing.T) {

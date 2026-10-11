@@ -5,9 +5,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/shivam-jainn/shipyard-cli/actions"><img src="https://img.shields.io/badge/build-passing-brightgreen.svg" alt="Build Status"></a>
+  <a href="https://github.com/dock-at-the-yards/shipyard-cli/actions"><img src="https://img.shields.io/badge/build-passing-brightgreen.svg" alt="Build Status"></a>
   <a href="https://golang.org"><img src="https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go" alt="Go Version"></a>
-  <a href="https://github.com/shivam-jainn/shipyard-cli/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Shipyard%20(source--available)-blue.svg" alt="License: Shipyard source-available"></a>
+  <a href="https://github.com/dock-at-the-yards/shipyard-cli/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Shipyard%20(source--available)-blue.svg" alt="License: Shipyard source-available"></a>
 </p>
 
 ---
@@ -20,7 +20,7 @@ commands, and the release pipeline.
 | Repository | Visibility | Role |
 | :--- | :--- | :--- |
 | **`shipyard-cli`** (this repo) | public | The `shipyard` binary, commands, and release pipeline. |
-| [`shipyard-ci`](https://github.com/shivam-jainn/shipyard-ci) | public | Reusable CI templates that gate evals in GitHub Actions, Argo, Jenkins, and GitLab. |
+| [`shipyard-ci`](https://github.com/dock-at-the-yards/shipyard-ci) | public | Reusable CI templates that gate evals in GitHub Actions, Argo, Jenkins, and GitLab. |
 
 ---
 
@@ -39,7 +39,7 @@ binary. See [Why you cannot `go install` this](#why-you-cannot-go-install-this).
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/shivam-jainn/shipyard-cli/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/dock-at-the-yards/shipyard-cli/main/install.sh | sh
 ```
 
 That installs the latest **stable** release, currently `v0.0.1`. The
@@ -48,11 +48,11 @@ needs `curl` and `tar`.
 
 ```bash
 # follow the test channel while you evaluate a new CLI
-curl -fsSL https://raw.githubusercontent.com/shivam-jainn/shipyard-cli/main/install.sh \
+curl -fsSL https://raw.githubusercontent.com/dock-at-the-yards/shipyard-cli/main/install.sh \
   | sh -s -- --channel test
 
 # pin an exact version, which is what you want in CI
-curl -fsSL https://raw.githubusercontent.com/shivam-jainn/shipyard-cli/main/install.sh \
+curl -fsSL https://raw.githubusercontent.com/dock-at-the-yards/shipyard-cli/main/install.sh \
   | sh -s -- --version v0.0.1
 ```
 
@@ -67,7 +67,7 @@ sandboxing:
 
 ```bash
 docker run --rm -it -v "$PWD:/src" -v /var/run/docker.sock:/var/run/docker.sock \
-  ghcr.io/shivam-jainn/shipyard-cli:latest run ./my-eval
+  ghcr.io/dock-at-the-yards/shipyard-cli:latest run ./my-eval
 ```
 
 Verify, and uninstall:
@@ -83,7 +83,7 @@ Install with `install.sh`, which verifies a SHA256 checksum before writing
 anything:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/shivam-jainn/shipyard-cli/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/dock-at-the-yards/shipyard-cli/main/install.sh | sh
 ```
 
 `go install` is not supported. Use the checksummed release tarballs or the

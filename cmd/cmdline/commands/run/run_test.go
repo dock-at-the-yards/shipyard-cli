@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shivam-jainn/shipyard-cli/cmd/cmdline/commands"
-	runcmd "github.com/shivam-jainn/shipyard-cli/cmd/cmdline/commands/run"
-	"github.com/shivam-jainn/shipyard-core/common/types"
+	"github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands"
+	runcmd "github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands/run"
+	"github.com/dock-at-the-yards/shipyard-core/common/types"
 
 	"github.com/spf13/cobra"
 )
