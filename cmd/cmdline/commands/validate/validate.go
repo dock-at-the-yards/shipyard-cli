@@ -44,7 +44,7 @@ Exit code 0 when no errors are found; warnings do not fail.`,
 			if jerr != nil {
 				return jerr
 			}
-			cmd.Println(string(data))
+			commands.PrintStdout(cmd, string(data))
 		} else {
 			cmd.Printf("Validating %s (%s, %d eval(s))\n", result.Target, result.Type, result.Evals)
 			if len(result.Problems) == 0 {

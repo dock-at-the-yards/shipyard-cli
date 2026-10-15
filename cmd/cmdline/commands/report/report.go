@@ -93,7 +93,7 @@ exists at baselines/<name>.json, includes the delta table.`,
 			case "markdown", "md":
 				out := report.Markdown(res, report.Options{Comparison: comparison})
 				if outDir == "-" {
-					cmd.Println(out)
+					commands.PrintStdout(cmd, out)
 					wrote++
 					continue
 				}
@@ -109,7 +109,7 @@ exists at baselines/<name>.json, includes the delta table.`,
 					return err
 				}
 				if outDir == "-" {
-					cmd.Println(string(out))
+					commands.PrintStdout(cmd, string(out))
 					wrote++
 					continue
 				}
@@ -125,7 +125,7 @@ exists at baselines/<name>.json, includes the delta table.`,
 					return err
 				}
 				if outDir == "-" {
-					cmd.Println(string(out))
+					commands.PrintStdout(cmd, string(out))
 					wrote++
 					continue
 				}

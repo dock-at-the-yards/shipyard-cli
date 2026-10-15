@@ -129,7 +129,7 @@ var RunCmd = &cobra.Command{
 				if err != nil {
 					return err
 				}
-				cmd.Println(string(data))
+				commands.PrintStdout(cmd, string(data))
 				return nil
 			}
 			printPlan(cmd, plan)
@@ -248,7 +248,7 @@ func emitJSON(cmd *cobra.Command, summary *types.RunSummary, targetPath string) 
 			if err != nil {
 				return err
 			}
-			cmd.Println(string(data))
+			commands.PrintStdout(cmd, string(data))
 			return nil
 		}
 	}
@@ -256,7 +256,7 @@ func emitJSON(cmd *cobra.Command, summary *types.RunSummary, targetPath string) 
 	if err != nil {
 		return err
 	}
-	cmd.Println(string(data))
+	commands.PrintStdout(cmd, string(data))
 	return nil
 }
 
