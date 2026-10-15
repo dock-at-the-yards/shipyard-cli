@@ -10,12 +10,12 @@
 #   curl -fsSL https://raw.githubusercontent.com/dock-at-the-yards/shipyard-cli/main/install.sh | sh
 #
 # Channels:
-#   stable (default)  latest non-prerelease          v0.0.1
-#   test              latest alpha/beta/rc prerelease v0.0.1-alpha.1
-#   dev               latest development build        v0.0.1-dev.42
+#   stable (default)  latest non-prerelease          v0.0.2
+#   test              latest alpha/beta/rc prerelease v0.0.2-rc.1
+#   dev               latest development build        v0.0.2-dev.42
 #
 # Usage:
-#   install.sh [--channel stable|test|dev] [--version v0.0.1]
+#   install.sh [--channel stable|test|dev] [--version v0.0.2]
 #              [--install-dir DIR] [--yes] [--dry-run] [--uninstall]
 #
 # Environment:
@@ -23,7 +23,15 @@
 #   SHIPYARD_VERSION     same as --version
 #   SHIPYARD_INSTALL_DIR same as --install-dir
 
-set -euo pipefail
+set -eu
+
+# POSIX `sh` (dash on Debian/Ubuntu) has no `pipefail`. The documented install
+# path is `curl ... | sh`, so the script must run under any POSIX shell: enable
+# pipefail where it exists, and stay correct without it (every pipeline below
+# checks its own result explicitly).
+if (set -o pipefail) 2>/dev/null; then
+  set -o pipefail
+fi
 
 REPO="dock-at-the-yards/shipyard-cli"
 GITHUB_API="https://api.github.com"
