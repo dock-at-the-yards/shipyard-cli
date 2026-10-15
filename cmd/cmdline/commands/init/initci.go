@@ -274,10 +274,15 @@ func ensureGatePolicy(root, target string) (string, bool, error) {
 		if err != nil {
 			return path, false, err
 		}
-		defer f.Close()
 		policy := gatePolicyBlock
 		if _, err := f.WriteString(policy); err != nil {
+			_ = f.Close()
 			return path, false, err
+		}
+		// Close explicitly and check: a failed close can lose the appended
+		// policy, and a deferred close would swallow that error.
+		if err := f.Close(); err != nil {
+			return path, false, fmt.Errorf("closing %s: %w", path, err)
 		}
 		return path, true, nil
 	}
