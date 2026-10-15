@@ -5,13 +5,13 @@ tier at a time, and never down.
 
 ```
   feature/*  ──PR──▶  develop  ──PR──▶  staging  ──PR──▶  main
-             dev         test              prod
+             dev        pre-prod           prod
 ```
 
 | Branch | Environment | Channel | Who consumes it |
 |---|---|---|---|
 | `develop` | integration | `dev` | you, on every push. `./install.sh --channel dev` |
-| `staging` | pre-production | `test` | QA, integration checks. `./install.sh --channel test` |
+| `staging` | pre-production | — | QA, integration checks |
 | `main` | production | `stable` | everyone. `./install.sh --channel stable` |
 
 `develop` is the only branch you push to directly. `staging` and `main` are
@@ -34,7 +34,7 @@ question a release is supposed to answer.
 Promotions are one click each:
 
 ```bash
-# develop -> staging, publishes the test channel
+# develop -> staging (pre-production)
 gh workflow run promote.yml -f target=staging
 
 # staging -> main, publishes the stable channel
@@ -52,9 +52,9 @@ git checkout main && git pull
 git tag v0.0.2 && git push origin v0.0.2
 ```
 
-That tag drives the Release workflow, which publishes binaries, the container
-image, the SBOM and the provenance attestation, then repoints `stable` in the
-`dist` channel manifest.
+That tag drives the Release workflow, which publishes binaries, the SBOM and
+the provenance attestation, then repoints `stable` in the `dist` channel
+manifest.
 
 ### Tag provenance is enforced, not trusted
 
@@ -64,8 +64,11 @@ channel, and refuses otherwise:
 | Tag | Must be reachable from |
 |---|---|
 | `v1.2.3` | `main` |
-| `v1.2.3-rc.1` | `staging` |
 | `v0.0.0-dev.123` | `develop` |
+
+Release candidates are retired: there are no `-rc.N` tags. A candidate is
+validated on `staging` (CI plus the release drills) and then tagged stable
+from `main`; `release.yml` refuses prerelease tags other than `-dev.N`.
 
 Tagging production from `develop` by hand fails the run. That is deliberate: the
 branch policy is the thing that makes the three tiers mean something.
@@ -117,7 +120,7 @@ CI runs on every push and pull request targeting `develop`, `staging` or `main`.
 | `ci.yml` | GitHub-hosted | build, vet, format, test, cross-compile + artifacts, installer self-test |
 | `security.yml` | GitHub-hosted | CodeQL analysis and govulncheck |
 | `package.yml` | GitHub-hosted | `.deb`/`.rpm`/Arch and Homebrew formula |
-| `release.yml` | GitHub-hosted | multi-arch image builds need QEMU |
+| `release.yml` | GitHub-hosted | tag-driven: cross-compile, checksums, SBOM, attestation |
 
 ### Why race is its own job
 

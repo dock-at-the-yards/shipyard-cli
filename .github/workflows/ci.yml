@@ -3,7 +3,7 @@ name: CI
 # Runs on every push and pull request targeting a live branch.
 #
 #   develop  integration  dev channel
-#   staging  pre-production  test channel
+#   staging  pre-production
 #   main     production  stable channel
 #
 # All jobs run on GitHub-hosted `ubuntu-latest` runners. No self-hosted

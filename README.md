@@ -47,10 +47,6 @@ installer verifies the SHA256 checksum before writing anything, and it only
 needs `curl` and `tar`.
 
 ```bash
-# follow the test channel while you evaluate a new CLI
-curl -fsSL https://raw.githubusercontent.com/dock-at-the-yards/shipyard-cli/main/install.sh \
-  | sh -s -- --channel test
-
 # pin an exact version, which is what you want in CI
 curl -fsSL https://raw.githubusercontent.com/dock-at-the-yards/shipyard-cli/main/install.sh \
   | sh -s -- --version v0.0.2
@@ -59,16 +55,7 @@ curl -fsSL https://raw.githubusercontent.com/dock-at-the-yards/shipyard-cli/main
 | Channel | Tracks | Use for |
 | :--- | :--- | :--- |
 | `stable` | latest non-prerelease | production |
-| `test` | latest `-alpha` / `-beta` / `-rc` | validating a release against your evals |
 | `dev` | latest `-dev` build | debugging the CLI itself |
-
-Or run it as a container, which is the easiest way to get Docker-in-Docker
-sandboxing:
-
-```bash
-docker run --rm -it -v "$PWD:/src" -v /var/run/docker.sock:/var/run/docker.sock \
-  ghcr.io/dock-at-the-yards/shipyard-cli:latest run ./my-eval
-```
 
 Verify, and uninstall:
 
@@ -86,8 +73,7 @@ anything:
 curl -fsSL https://raw.githubusercontent.com/dock-at-the-yards/shipyard-cli/main/install.sh | sh
 ```
 
-`go install` is not supported. Use the checksummed release tarballs or the
-container image.
+`go install` is not supported. Use the checksummed release tarballs.
 
 ---
 
