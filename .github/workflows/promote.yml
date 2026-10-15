@@ -2,7 +2,7 @@ name: Promote
 
 # Moves code up one tier. Never two, and never sideways.
 #
-#   develop ──▶ staging   test channel, pre-production
+#   develop ──▶ staging   pre-production
 #   staging ──▶ main      prod channel, stable releases
 #
 # Work lands on develop through pull requests. Promotion is the only way code
@@ -150,15 +150,14 @@ jobs:
           git push origin v${VERSION}
           \`\`\`
 
-          The Release workflow then publishes stable binaries and a container
-          image, and repoints the \`stable\` channel."
+          The Release workflow then publishes stable binaries and repoints the
+          \`stable\` channel."
           else
             TITLE="promote: develop to staging"
             BODY="Promotes \`develop\` to \`staging\`.
 
-          \`staging\` is the pre-production environment and the source of the
-          \`test\` channel. A prerelease tag here (\`-alpha.N\`, \`-beta.N\`,
-          \`-rc.N\`) publishes a test build."
+          \`staging\` is the pre-production environment. Let the change bake
+          here before it is promoted to \`main\`."
           fi
 
           # An open PR on the same hop means a promotion is already in flight;

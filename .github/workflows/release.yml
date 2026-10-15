@@ -2,13 +2,14 @@ name: Release
 
 # Releases are cut from tags, and the tag's own suffix decides the channel:
 #
-#   v1.2.3              -> stable   GitHub release + ghcr :latest, :1.2.3, :v1.2.3
-#   v1.2.3-rc.1         -> test     GitHub prerelease   + ghcr :test, :1.2.3-rc.1
-#   v0.0.0-dev.123      -> dev      GitHub prerelease   + ghcr :dev
+#   v1.2.3              -> stable   GitHub release
+#   v0.0.0-dev.123      -> dev      GitHub prerelease
+#
+# Release candidates are retired: there are no -rc.N releases. Validate the
+# candidate on staging (CI + drills), then tag stable from main.
 #
 # Tag rules (enforced below), one branch per channel:
 #   stable  v1.2.3          must be reachable from main
-#   test    v1.2.3-rc.1     must be reachable from staging
 #   dev     v0.0.0-dev.123  must be reachable from develop
 #
 # After publishing, the `dist` branch is updated so install.sh can resolve
@@ -20,13 +21,12 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing tag to publish (e.g. v0.0.1-alpha.1)'
+        description: 'Existing tag to publish (e.g. v0.0.2)'
         required: true
 
 permissions:
   contents: write
   id-token: write
-  packages: write
   # actions/attest-build-provenance needs this; without it the attestation
   # write fails with "Resource not accessible by integration".
   attestations: write
@@ -36,11 +36,6 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  REGISTRY: ghcr.io
-  # Must be registry-qualified. Without the ghcr.io/ prefix, buildx resolves
-  # these tags against Docker Hub and the push fails with:
-  #   401 Unauthorized: access token has insufficient scopes
-  IMAGE_NAME: ghcr.io/${{ github.repository }}
   ARTIFACT_BIN: shipyard
 
 jobs:
@@ -80,9 +75,12 @@ jobs:
           CHANNEL="stable"
           PRERELEASE="false"
           case "$VERSION" in
-            *-dev.*)  CHANNEL="dev" ;;
-            *-alpha.*|*-beta.*|*-rc.*) CHANNEL="test"; PRERELEASE="true" ;;
-            -*) echo "::error::unrecognised prerelease suffix in '$TAG' (use -alpha.N, -beta.N, -rc.N, or -dev.N)"; exit 1 ;;
+            *-dev.*)  CHANNEL="dev"; PRERELEASE="true" ;;
+            *-alpha.*|*-beta.*|*-rc.*)
+              echo "::error::'$TAG' is a release candidate, and RC releases are retired."
+              echo "::error::Validate on staging (CI + drills), then tag a stable version from main."
+              exit 1 ;;
+            -*) echo "::error::unrecognised prerelease suffix in '$TAG' (use -dev.N)"; exit 1 ;;
           esac
           echo "channel=$CHANNEL"      >> "$GITHUB_OUTPUT"
           echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
@@ -92,8 +90,6 @@ jobs:
           # release being cut from a branch that never went through staging.
           if [ "$CHANNEL" = "stable" ]; then
             echo "allowed_branch=main"    >> "$GITHUB_OUTPUT"
-          elif [ "$CHANNEL" = "test" ]; then
-            echo "allowed_branch=staging" >> "$GITHUB_OUTPUT"
           else
             echo "allowed_branch=develop" >> "$GITHUB_OUTPUT"
           fi
@@ -113,7 +109,7 @@ jobs:
           else
             echo "::error::$TAG is not on '$BRANCH'."
             echo "::error::stable releases must be tagged from main;"
-            echo "::error::test releases from staging; dev releases from develop."
+            echo "::error::dev releases from develop."
             exit 1
           fi
 
@@ -178,9 +174,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          # CGO_ENABLED=0 produces a statically linked binary. Without it the
-          # glibc-linked build cannot run in the Alpine image, and the
-          # Dockerfile's `shipyard version` gate fails with exit 133.
+          # CGO_ENABLED=0 produces a statically linked binary that runs
+          # anywhere, with no libc dependency.
           # -trimpath strips local paths, -s -w drop the symbol table and DWARF,
           # -buildid= makes builds reproducible.
           CGO_ENABLED=0 go build -trimpath -mod=readonly \
@@ -259,9 +254,9 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-  # ------------------------------------------------------- github + registry --
+  # --------------------------------------------------------- github release --
   publish:
-    name: Publish release & image
+    name: Publish GitHub release
     needs: [ classify, package ]
     runs-on: ubuntu-latest
     steps:
@@ -287,7 +282,7 @@ jobs:
 
       # Dev builds are cut on every push to develop, so without pruning the
       # release list would grow without bound. Keep only the newest dev
-      # prerelease; stable and test releases are permanent.
+      # prerelease; stable releases are permanent.
       - name: Prune superseded dev prereleases
         if: needs.classify.outputs.channel == 'dev'
         env:
@@ -307,96 +302,6 @@ jobs:
                 gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/${old}" >/dev/null 2>&1 \
                   || echo "::warning::could not delete tag $old (it may already be gone)"
               done
-
-  image:
-    name: Publish container image
-    needs: [ classify, build ]
-    runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    steps:
-      - name: Checkout CLI
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.classify.outputs.tag }}
-
-      # The image cannot compile Go: shipyard-core is private, so the module
-      # graph cannot be resolved inside the build context. The linux binaries
-      # were already cross-compiled and verified by the build job.
-      - name: Download linux artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: bin-linux-*
-          merge-multiple: true
-          path: staged
-
-      - name: Stage binaries for the Dockerfile
-        env:
-          TAG: ${{ needs.classify.outputs.tag }}
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          for arch in amd64 arm64; do
-            f="staged/shipyard-${TAG}-linux-${arch}.tar.gz"
-            [ -f "$f" ] || { echo "::error::missing $f"; exit 1; }
-            tar -xzf "$f" -C dist shipyard
-            mv dist/shipyard "dist/shipyard-linux-${arch}"
-          done
-          ls -l dist
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Compute tags
-        id: meta
-        env:
-          VERSION: ${{ needs.classify.outputs.version }}
-          CHANNEL: ${{ needs.classify.outputs.channel }}
-        run: |
-          set -euo pipefail
-          # docker/build-push-action splits `tags` on newlines, so each tag
-          # must be on its own line. Space-separated tags reached buildx as a
-          # single --tag argument and failed with 'invalid reference format'.
-          {
-            echo "${IMAGE_NAME}:${VERSION}"
-            case "$CHANNEL" in
-              stable) echo "${IMAGE_NAME}:latest"; echo "${IMAGE_NAME}:stable" ;;
-              test)   echo "${IMAGE_NAME}:test" ;;
-              dev)    echo "${IMAGE_NAME}:dev" ;;
-            esac
-          } > "$RUNNER_TEMP/tags.txt"
-          cat "$RUNNER_TEMP/tags.txt"
-          {
-            echo "tags<<EOF"
-            cat "$RUNNER_TEMP/tags.txt"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Build and push image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: |
-            org.opencontainers.image.title=shipyard
-            org.opencontainers.image.version=${{ needs.classify.outputs.version }}
-            org.opencontainers.image.revision=${{ needs.classify.outputs.commit_sha }}
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.channel=${{ needs.classify.outputs.channel }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
   # ---------------------------------------------------- channel manifest ----
   manifest:
@@ -432,7 +337,7 @@ jobs:
 
           printf '%s\n' "$TAG" > "$CHANNEL"
           # keep a copy of the other channels so a partial write cannot wipe them
-          for c in stable test dev; do
+          for c in stable dev; do
             [ "$c" = "$CHANNEL" ] || touch "$c"
           done
 

@@ -33,7 +33,7 @@ commands, invokes the Docker CLI, and executes Python rubrics.
 
 In scope:
 
-- The `shipyard` binary, this repository's source, and the container image
+- The `shipyard` binary, this repository's source, and the release artifacts
 - `install.sh`, which downloads and executes a published artifact
 - The release pipeline, including artifact and checksum generation
 
@@ -47,17 +47,15 @@ Out of scope:
 
 ## Verifying what you installed
 
-Every release ships a checksum file and an SPDX SBOM. The image is signed
-with provenance attestation.
+Every release ships a checksum file and an SPDX SBOM, and every tarball is
+covered by a signed build-provenance attestation.
 
 ```bash
 # After downloading a release tarball
 sha256sum -c checksums.txt
-```
 
-```bash
-# Confirm the image you pulled is the one that was published
-docker buildx imagetools inspect ghcr.io/dock-at-the-yards/shipyard-cli:test
+# Confirm the tarball was built by the release pipeline
+gh attestation verify shipyard-*.tar.gz --repo dock-at-the-yards/shipyard-cli
 ```
 
 If a checksum does not match, do not run the binary. Re-download it and
@@ -65,8 +63,8 @@ report the discrepancy.
 
 ## Build integrity
 
-Distribution is artifacts-only: checksummed release tarballs and a container
-image. Every release ships a checksum file and an SPDX SBOM.
+Distribution is artifacts-only: checksummed release tarballs. Every release
+ships a checksum file and an SPDX SBOM.
 
 The release pipeline is hardened against a compromised runner:
 
