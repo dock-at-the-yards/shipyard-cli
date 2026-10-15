@@ -10,12 +10,12 @@
 #   curl -fsSL https://raw.githubusercontent.com/dock-at-the-yards/shipyard-cli/main/install.sh | sh
 #
 # Channels:
-#   stable (default)  latest non-prerelease          v0.0.1
-#   test              latest alpha/beta/rc prerelease v0.0.1-alpha.1
-#   dev               latest development build        v0.0.1-dev.42
+#   stable (default)  latest non-prerelease          v0.0.2
+#   test              latest alpha/beta/rc prerelease v0.0.2-rc.1
+#   dev               latest development build        v0.0.2-dev.42
 #
 # Usage:
-#   install.sh [--channel stable|test|dev] [--version v0.0.1]
+#   install.sh [--channel stable|test|dev] [--version v0.0.2]
 #              [--install-dir DIR] [--yes] [--dry-run] [--uninstall]
 #
 # Environment:
