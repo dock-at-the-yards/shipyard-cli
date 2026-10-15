@@ -10,8 +10,8 @@ GOARCH ?= $(shell go env GOARCH)
 GO ?= go
 
 .PHONY: all init build install test lint fmt vet clean help \
-        version channel install-script dev-build docker-build docker-run \
-        docker-shell release-snapshot
+        version channel install-script dev-build \
+        release-snapshot
 
 all: build
 
@@ -32,7 +32,6 @@ VERSION_BASE := $(shell [ -f $(VERSION_FILE) ] && tr -d '[:space:]' < $(VERSION_
 # pipeline uses, so a local build always reports the channel it would be
 # published on:
 #   1.2.3          -> stable
-#   1.2.3-rc.1     -> test      (also -alpha, -beta)
 #   0.0.0-dev.42   -> dev
 # Anything untagged is dev, so a local binary is never mistaken for a release.
 CURRENT_BRANCH := $(shell git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)
@@ -45,7 +44,7 @@ else
   BUILD_VERSION := $(shell echo $(EXACT_TAG) | sed 's/^v//')
 endif
 
-CHANNEL ?= $(shell v='$(BUILD_VERSION)'; if printf '%s' "$$v" | grep -qE -- '-dev\.'; then echo dev; elif printf '%s' "$$v" | grep -qE -- '-(alpha|beta|rc)\.'; then echo test; else echo stable; fi)
+CHANNEL ?= $(shell v='$(BUILD_VERSION)'; if printf '%s' "$$v" | grep -qE -- '-dev\.'; then echo dev; else echo stable; fi)
 
 COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 
@@ -111,26 +110,9 @@ lint vet:
 fmt:
 	$(GO) fmt ./...
 
-# ------------------------------------------------------------------- docker --
-
-DOCKER_IMAGE ?= ghcr.io/dock-at-the-yards/shipyard-cli
-DOCKER_TAG   ?= $(CHANNEL)
-
-## docker-build: Build the runtime image locally from a locally built binary
-docker-build:
-	@mkdir -p dist
-	GOOS=linux GOARCH=$(GOARCH) $(GO) build -trimpath -ldflags="$(LDFLAGS)" \
-		-o dist/shipyard-linux-$(GOARCH) $(CMD_DIR)/main.go
-	docker build -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
-
-## docker-run: Run the image against the current directory
-docker-run:
-	docker run --rm -it -v "$(PWD):/src" -v /var/run/docker.sock:/var/run/docker.sock \
-		$(DOCKER_IMAGE):$(DOCKER_TAG) $(ARGS)
-
 ## dev-build: Build everything CI would for a dev build
-dev-build: build release-snapshot docker-build
-	@echo "dev build complete: $(BIN_DIR)/$(BINARY_NAME), dist/, $(DOCKER_IMAGE):$(DOCKER_TAG)"
+dev-build: build release-snapshot
+	@echo "dev build complete: $(BIN_DIR)/$(BINARY_NAME), dist/"
 
 # -------------------------------------------------------------------- clean --
 
@@ -152,9 +134,7 @@ help:
 	@echo "  fmt               Format Go sources"
 	@echo "  release-snapshot  Reproduce a release tarball locally"
 	@echo "  install-script    Install from the published release via install.sh"
-	@echo "  docker-build      Build the runtime container image"
-	@echo "  docker-run        Run the image against the current directory"
-	@echo "  dev-build         build + release-snapshot + docker-build"
+	@echo "  dev-build         build + release-snapshot"
 	@echo "  clean             Remove build artifacts"
 	@echo ""
 	@echo "Current: $(BUILD_VERSION) ($(CHANNEL), branch $(CURRENT_BRANCH))"

@@ -2,6 +2,7 @@ package cmdline
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -9,8 +10,12 @@ import (
 	"syscall"
 
 	"github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands"
+	_ "github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands/baseline"
+	_ "github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands/compare"
 	_ "github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands/init"
-	_ "github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands/run"
+	_ "github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands/report"
+	runcmd "github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands/run"
+	_ "github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands/validate"
 	shiperrs "github.com/dock-at-the-yards/shipyard-core/pkg/errors"
 
 	"github.com/spf13/cobra"
@@ -18,7 +23,7 @@ import (
 
 // Version is the current release version of Shipyard CLI.
 // Can be overridden at build time via -ldflags or at runtime via SHIPYARD_VERSION env var.
-var Version = "alpha 0.0.1"
+var Version = "0.0.2"
 
 // Commit is the git commit the binary was built from.
 // Injected at link time by the release pipeline; empty for local builds.
@@ -108,10 +113,20 @@ func CmdLine() {
 	rootCmd.Version = GetVersion()
 	commands.AttachAll(rootCmd)
 
+	// Wire build identity into run.json provenance.
+	runcmd.SetBuildInfo(GetVersion, GetCommit, GetEngineCommit)
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
+		var exitErr *commands.ExitCodeError
+		if errors.As(err, &exitErr) {
+			if msg := exitErr.Error(); msg != "" {
+				fmt.Fprintln(os.Stderr, msg)
+			}
+			os.Exit(exitErr.Code)
+		}
 		if sErr, ok := err.(*shiperrs.ShipyardError); ok {
 			fmt.Fprintln(os.Stderr, sErr.FormatColored())
 		} else {

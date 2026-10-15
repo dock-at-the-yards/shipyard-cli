@@ -2,10 +2,10 @@ name: Dev Build
 
 # Every push to develop produces an installable dev build.
 #
-# A tag is created and pushed, which in turn triggers the Release workflow.
-# That keeps a single code path for all three channels: dev builds go through
-# exactly the same pipeline as stable and test releases, just on a different
-# branch and with a -dev prerelease tag.
+# A tag is created, pushed, and the Release workflow is dispatched explicitly:
+# tag pushes made with GITHUB_TOKEN never trigger workflows (GitHub's
+# recursion rule), so relying on the push alone silently produces tags with no
+# build. One code path still serves every channel — the release pipeline.
 #
 # The Release workflow prunes superseded dev prereleases, so the release list
 # stays bounded at one dev build plus the permanent stable/test releases.
@@ -17,6 +17,8 @@ on:
 
 permissions:
   contents: write
+  # Dispatching release.yml after the tag push needs this.
+  actions: write
 
 concurrency:
   group: dev-build
@@ -31,6 +33,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Create a dev tag
+        id: tag
         run: |
           set -euo pipefail
           # Run number keeps tags unique and ordered even across reruns of the
@@ -41,4 +44,14 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag "$TAG"
           git push origin "$TAG"
-          echo "::notice::pushed $TAG, which triggers the Release workflow"
+
+      - name: Dispatch the Release workflow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # A tag push made with GITHUB_TOKEN does not trigger workflows
+          # (GitHub's recursion rule), so dispatch the release explicitly.
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" -f tag="$TAG"
+          echo "::notice::dispatched release.yml for $TAG"

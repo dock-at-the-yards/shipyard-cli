@@ -2,7 +2,7 @@ name: Promote
 
 # Moves code up one tier. Never two, and never sideways.
 #
-#   develop ──▶ staging   test channel, pre-production
+#   develop ──▶ staging   pre-production
 #   staging ──▶ main      prod channel, stable releases
 #
 # Work lands on develop through pull requests. Promotion is the only way code
@@ -39,8 +39,9 @@ permissions:
   # The merge step polls statusCheckRollup for the gates; without these
   # the query fails with "Resource not accessible by integration"
   # (the rollup nests checkSuite.workflowRun, which needs actions:read).
+  # `actions: write` additionally lets the post-merge step dispatch ci.yml.
   checks: read
-  actions: read
+  actions: write
 
 concurrency:
   group: promote-${{ inputs.target }}
@@ -150,15 +151,14 @@ jobs:
           git push origin v${VERSION}
           \`\`\`
 
-          The Release workflow then publishes stable binaries and a container
-          image, and repoints the \`stable\` channel."
+          The Release workflow then publishes stable binaries and repoints the
+          \`stable\` channel."
           else
             TITLE="promote: develop to staging"
             BODY="Promotes \`develop\` to \`staging\`.
 
-          \`staging\` is the pre-production environment and the source of the
-          \`test\` channel. A prerelease tag here (\`-alpha.N\`, \`-beta.N\`,
-          \`-rc.N\`) publishes a test build."
+          \`staging\` is the pre-production environment. Let the change bake
+          here before it is promoted to \`main\`."
           fi
 
           # An open PR on the same hop means a promotion is already in flight;
@@ -222,3 +222,16 @@ jobs:
           done
           gh pr merge "$NUMBER" --merge
           echo "::notice::merged promotion PR #$NUMBER"
+
+      - name: Dispatch CI on the promoted branch
+        if: steps.pr.outputs.number != '' && inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEST: ${{ steps.tier.outputs.dest }}
+        run: |
+          set -euo pipefail
+          # The merge above is a GITHUB_TOKEN push and therefore triggers no
+          # workflows; dispatch ci.yml so "the tier is green" is directly
+          # observable rather than inferred from the promotion PR's checks.
+          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$DEST"
+          echo "::notice::dispatched ci.yml on $DEST"

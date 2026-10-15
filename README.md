@@ -42,33 +42,20 @@ binary. See [Why you cannot `go install` this](#why-you-cannot-go-install-this).
 curl -fsSL https://raw.githubusercontent.com/dock-at-the-yards/shipyard-cli/main/install.sh | sh
 ```
 
-That installs the latest **stable** release, currently `v0.0.1`. The
+That installs the latest **stable** release, currently `v0.0.2`. The
 installer verifies the SHA256 checksum before writing anything, and it only
 needs `curl` and `tar`.
 
 ```bash
-# follow the test channel while you evaluate a new CLI
-curl -fsSL https://raw.githubusercontent.com/dock-at-the-yards/shipyard-cli/main/install.sh \
-  | sh -s -- --channel test
-
 # pin an exact version, which is what you want in CI
 curl -fsSL https://raw.githubusercontent.com/dock-at-the-yards/shipyard-cli/main/install.sh \
-  | sh -s -- --version v0.0.1
+  | sh -s -- --version v0.0.2
 ```
 
 | Channel | Tracks | Use for |
 | :--- | :--- | :--- |
 | `stable` | latest non-prerelease | production |
-| `test` | latest `-alpha` / `-beta` / `-rc` | validating a release against your evals |
 | `dev` | latest `-dev` build | debugging the CLI itself |
-
-Or run it as a container, which is the easiest way to get Docker-in-Docker
-sandboxing:
-
-```bash
-docker run --rm -it -v "$PWD:/src" -v /var/run/docker.sock:/var/run/docker.sock \
-  ghcr.io/dock-at-the-yards/shipyard-cli:latest run ./my-eval
-```
 
 Verify, and uninstall:
 
@@ -86,8 +73,7 @@ anything:
 curl -fsSL https://raw.githubusercontent.com/dock-at-the-yards/shipyard-cli/main/install.sh | sh
 ```
 
-`go install` is not supported. Use the checksummed release tarballs or the
-container image.
+`go install` is not supported. Use the checksummed release tarballs.
 
 ---
 
@@ -115,7 +101,12 @@ Rollouts are written to `<eval-path>/rollouts/<run-id>/` containing
 | Command | Description |
 | :--- | :--- |
 | `shipyard init` | Scaffold an `eval` or `evalset` from a built-in template. |
+| `shipyard init ci` | Scaffold a gated CI pipeline (GitHub Actions, GitLab, Jenkins, Argo). |
 | `shipyard run` | Execute an eval or evalset and score it. |
+| `shipyard validate` | Statically lint an eval or evalset before any container starts. |
+| `shipyard baseline save` | Save a committed baseline (`baselines/<name>.json`) from a run. |
+| `shipyard compare` | Compare a run against a baseline; the delta gate with exit codes. |
+| `shipyard report` | Re-render markdown/JSON/JUnit reports from an existing run. |
 | `shipyard version` | Print the active version. |
 | `shipyard completion` | Generate a shell completion script. |
 
@@ -126,7 +117,26 @@ Rollouts are written to `<eval-path>/rollouts/<run-id>/` containing
 - `--model <name>`: Override the model name.
 - `--command <cmd>`: Override agent execution command.
 - `--env <type>`: Override the sandbox type (`docker`, `local`, `custom`).
+- `--repeat K`: Run each eval K times; aggregate `pass@k`, `pass^k`, mean/σ, flakes.
+- `--report markdown,json,junit`: Write reports at the target root.
+- `--json`: Print machine-readable suite results JSON to stdout.
+- `--dry-run`: Print the resolved plan; execute nothing.
+- `--no-redact`: Disable best-effort credential scrubbing.
+- `--keep-workdir`: Leave agent changes in the workspace (default: restored).
 - `--keep-env`: Retain the sandbox after completion for post-mortem debugging.
+
+### The gate loop (v0.0.2)
+
+```bash
+shipyard validate ./evalset                       # lint before spending anything
+shipyard run ./evalset --repeat 3                 # repeated, isolated samples
+shipyard baseline save ./evalset --name main      # commit baselines/main.json
+shipyard compare ./evalset                        # delta gate; exit 1 on regression
+```
+
+`compare` exits `0` when the gate passes, `1` when blocked (regression, flake,
+infra error, or a suite-definition change), and `2` on usage errors. Infra
+failures are labeled infra and never reported as "the agent failed".
 
 ### Runtime overrides
 

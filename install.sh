@@ -5,17 +5,16 @@
 # Installs a published Shipyard CLI release. Because the evaluation engine
 # (shipyard-core) is a private repository, the CLI is NOT installable with
 # `go install`. Distribution is exclusively through signed, checksummed
-# release artifacts and the GHCR container image.
+# release artifacts.
 #
 #   curl -fsSL https://raw.githubusercontent.com/dock-at-the-yards/shipyard-cli/main/install.sh | sh
 #
 # Channels:
-#   stable (default)  latest non-prerelease          v0.0.1
-#   test              latest alpha/beta/rc prerelease v0.0.1-alpha.1
-#   dev               latest development build        v0.0.1-dev.42
+#   stable (default)  latest non-prerelease    v0.0.2
+#   dev               latest development build v0.0.0-dev.42
 #
 # Usage:
-#   install.sh [--channel stable|test|dev] [--version v0.0.1]
+#   install.sh [--channel stable|dev] [--version v0.0.2]
 #              [--install-dir DIR] [--yes] [--dry-run] [--uninstall]
 #
 # Environment:
@@ -23,7 +22,15 @@
 #   SHIPYARD_VERSION     same as --version
 #   SHIPYARD_INSTALL_DIR same as --install-dir
 
-set -euo pipefail
+set -eu
+
+# POSIX `sh` (dash on Debian/Ubuntu) has no `pipefail`. The documented install
+# path is `curl ... | sh`, so the script must run under any POSIX shell: enable
+# pipefail where it exists, and stay correct without it (every pipeline below
+# checks its own result explicitly).
+if (set -o pipefail) 2>/dev/null; then
+  set -o pipefail
+fi
 
 REPO="dock-at-the-yards/shipyard-cli"
 GITHUB_API="https://api.github.com"
@@ -114,15 +121,15 @@ need() {
 # Resolve a channel to a concrete version tag.
 #
 # The release pipeline maintains a `dist` branch in this repository holding
-# one plain-text file per channel (stable, test, dev), each containing a
+# one plain-text file per channel (stable, dev), each containing a
 # single version tag. Reading it needs no JSON parser, no jq, and no
 # python, so the installer stays dependency-free apart from curl and tar.
 resolve_version() {
   need curl
 
   case "$CHANNEL" in
-    stable|test|dev) ;;
-    *) die "unknown channel '$CHANNEL' (expected: stable, test, dev)" ;;
+    stable|dev) ;;
+    *) die "unknown channel '$CHANNEL' (expected: stable, dev)" ;;
   esac
 
   local tag=""
@@ -148,12 +155,9 @@ resolve_version() {
     if [ "$CHANNEL" = "stable" ]; then
       die "no stable release found for $REPO.
 
-  Every published release so far is a prerelease, and GitHub's 'latest'
-  endpoint does not consider prereleases. Install the test channel instead:
-
-    curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | sh -s -- --channel test
-
-  or pin an exact version with --version v<MAJOR.MINOR.PATCH>."
+  GitHub's 'latest' endpoint excludes prereleases, so no stable release has
+  been published yet. Check https://github.com/${REPO}/releases, or pin an
+  exact version with --version v<MAJOR.MINOR.PATCH>."
     fi
     die "could not resolve the '$CHANNEL' channel for $REPO.
 The dist channel manifest may not be published yet, or no release exists
@@ -255,7 +259,9 @@ Check that a release exists for ${VERSION} on the '${CHANNEL}' channel."
   fi
 
   if [ -e "$dir/$BINARY" ] && [ "$ASSUME_YES" != "1" ] && [ ! -t 0 ]; then
-    die "$dir/$BINARY already exists. Re-run with --yes to overwrite."
+    die "$dir/$BINARY already exists. Re-run with --yes passed to the script:
+
+  curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | sh -s -- --yes"
   fi
 
   log "Installing to $dir/$BINARY..."

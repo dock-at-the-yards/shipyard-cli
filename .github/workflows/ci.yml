@@ -3,7 +3,7 @@ name: CI
 # Runs on every push and pull request targeting a live branch.
 #
 #   develop  integration  dev channel
-#   staging  pre-production  test channel
+#   staging  pre-production
 #   main     production  stable channel
 #
 # All jobs run on GitHub-hosted `ubuntu-latest` runners. No self-hosted
@@ -14,6 +14,9 @@ on:
     branches: [ main, staging, develop ]
   pull_request:
     branches: [ main, staging, develop ]
+  # Dispatched by promote.yml after a GITHUB_TOKEN merge, which triggers no
+  # push workflows on its own.
+  workflow_dispatch:
 
 permissions:
   contents: read
