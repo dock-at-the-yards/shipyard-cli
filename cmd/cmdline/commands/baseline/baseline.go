@@ -99,7 +99,7 @@ workflow, not by this command.`,
 			if err != nil {
 				return err
 			}
-			cmd.Println(string(data))
+			commands.PrintStdout(cmd, string(data))
 			return nil
 		}
 
