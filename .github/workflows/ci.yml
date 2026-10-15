@@ -14,6 +14,9 @@ on:
     branches: [ main, staging, develop ]
   pull_request:
     branches: [ main, staging, develop ]
+  # Dispatched by promote.yml after a GITHUB_TOKEN merge, which triggers no
+  # push workflows on its own.
+  workflow_dispatch:
 
 permissions:
   contents: read

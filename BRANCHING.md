@@ -139,8 +139,15 @@ allow no force-push and no branch deletion. `develop` allows direct pushes,
 because that is where day-to-day work lands, but still blocks force-push and
 deletion.
 
-The promotion workflow merges with `--auto`, so it waits for those checks rather
-than racing them.
+The promotion workflow waits for those checks explicitly, merges with a merge
+commit (no `--auto`, no squash — history stays append-only across tiers), and
+then dispatches `ci.yml` on the destination branch: a merge made with
+`GITHUB_TOKEN` triggers no push workflows by itself.
+
+Two things sit on top of the checks for bot-authored promotions: an admin must
+**approve** the pull request and every review thread must be **resolved**
+(CodeQL comments count), or the Promote run's merge step fails. Approve the
+bot's promotion PR promptly once its gates are green.
 
 ## Housekeeping
 
