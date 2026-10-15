@@ -220,7 +220,8 @@ var RunCmd = &cobra.Command{
 				return commands.WithExitCode(1, shiperrs.New(shiperrs.ErrorCodeEnvironmentSetupFailed,
 					"run blocked by infra errors (fail closed, labeled infra)"))
 			}
-			return shiperrs.New(shiperrs.ErrorCodeAgentExecutionFailed, fmt.Sprintf("%d evaluation(s) failed", summary.Failed))
+			notPassed := summary.Failed + summary.Flaked
+			return shiperrs.New(shiperrs.ErrorCodeAgentExecutionFailed, fmt.Sprintf("%d evaluation(s) failed or flaked", notPassed))
 		}
 
 		return nil
