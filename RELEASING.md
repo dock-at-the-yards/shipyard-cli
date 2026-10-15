@@ -20,8 +20,8 @@ three, and the CLI's `install.sh` can install from any of them.
 | Channel | Branch | Tag shape | GitHub release | Container tags |
 | :--- | :--- | :--- | :--- | :--- |
 | `dev` | `develop`, automatically on every push | `v0.0.0-dev.<run>` | prerelease, pruned to the newest | `:dev` |
-| `test` | `staging` | `v0.0.1-alpha.1`, `-beta.1`, `-rc.1` | prerelease, kept | `:test` |
-| `stable` | `main` | `v0.0.1` | full release | `:latest`, `:stable`, `:<version>` |
+| `test` | `staging` | `v0.0.2-alpha.1`, `-beta.1`, `-rc.1` | prerelease, kept | `:test` |
+| `stable` | `main` | `v0.0.2` | full release | `:latest`, `:stable`, `:<version>` |
 
 The tag alone decides the channel. The release workflow **refuses to publish**
 any tag that is not reachable from the branch that owns its channel, so a
@@ -29,8 +29,8 @@ release cannot be cut from the wrong branch:
 
 | Tag | Must be reachable from |
 | :--- | :--- |
-| `v0.0.1` | `main` |
-| `v0.0.1-rc.1` | `staging` |
+| `v0.0.2` | `main` |
+| `v0.0.2-rc.1` | `staging` |
 | `v0.0.0-dev.42` | `develop` |
 
 ## Cutting a stable release
@@ -53,7 +53,7 @@ gh workflow run promote.yml --repo dock-at-the-yards/shipyard-cli -f target=stag
 # 2. staging -> main. Pass the version, or leave it blank to use the VERSION
 #    file on staging. Only stable MAJOR.MINOR.PATCH is accepted here.
 gh workflow run promote.yml --repo dock-at-the-yards/shipyard-cli \
-  -f target=production -f version=0.0.1
+  -f target=production -f version=0.0.2
 
 # add -f dry_run=true to open the PR without merging
 ```
@@ -67,8 +67,8 @@ test channel is the evidence that what is about to ship was actually exercised.
 ```bash
 # tag the merge commit on main. This triggers the release pipeline.
 git checkout main && git pull
-git tag v0.0.1
-git push origin v0.0.1
+git tag v0.0.2
+git push origin v0.0.2
 ```
 
 The pipeline then cross-compiles, smoke-tests, checksums, generates an SBOM,
@@ -81,8 +81,8 @@ Test releases come off `staging`, with a prerelease tag:
 
 ```bash
 git checkout staging && git pull
-git tag v0.0.1-rc.1
-git push origin v0.0.1-rc.1
+git tag v0.0.2-rc.1
+git push origin v0.0.2-rc.1
 ```
 
 ## Cutting a dev build
