@@ -23,7 +23,15 @@
 #   SHIPYARD_VERSION     same as --version
 #   SHIPYARD_INSTALL_DIR same as --install-dir
 
-set -euo pipefail
+set -eu
+
+# POSIX `sh` (dash on Debian/Ubuntu) has no `pipefail`. The documented install
+# path is `curl ... | sh`, so the script must run under any POSIX shell: enable
+# pipefail where it exists, and stay correct without it (every pipeline below
+# checks its own result explicitly).
+if (set -o pipefail) 2>/dev/null; then
+  set -o pipefail
+fi
 
 REPO="dock-at-the-yards/shipyard-cli"
 GITHUB_API="https://api.github.com"
