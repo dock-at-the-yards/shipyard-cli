@@ -127,7 +127,7 @@ budget and the 95% t-interval noise margin (k>=3) to block.`,
 			if jerr != nil {
 				return jerr
 			}
-			cmd.Println(string(data))
+			commands.PrintStdout(cmd, string(data))
 		} else {
 			printReport(cmd, report, baselinePath, candidatePath)
 		}
