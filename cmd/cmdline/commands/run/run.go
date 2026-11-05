@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands"
@@ -65,6 +66,8 @@ var RunCmd = &cobra.Command{
 		keepEnvFlag, _ := cmd.Flags().GetBool("keep-env")
 		keepWorkdirFlag, _ := cmd.Flags().GetBool("keep-workdir")
 		repeatFlag, _ := cmd.Flags().GetInt("repeat")
+		jobsFlag, _ := cmd.Flags().GetInt("jobs")
+		shardFlag, _ := cmd.Flags().GetString("shard")
 		jsonFlag, _ := cmd.Flags().GetBool("json")
 		dryRunFlag, _ := cmd.Flags().GetBool("dry-run")
 		noRedactFlag, _ := cmd.Flags().GetBool("no-redact")
@@ -92,12 +95,26 @@ var RunCmd = &cobra.Command{
 			KeepEnv:             keepEnvFlag,
 			KeepWorkdir:         keepWorkdirFlag || keepEnvFlag,
 			Repeat:              repeatFlag,
+			Jobs:                jobsFlag,
 			NoRedact:            noRedactFlag,
 			Provenance: types.ProvenanceInfo{
 				CLIVersion:   cliVersion(),
 				CLICommit:    cliCommit(),
 				EngineCommit: engineCommit(),
 			},
+		}
+
+		// Parse --shard i/n.
+		if strings.TrimSpace(shardFlag) != "" {
+			parts := strings.Split(strings.TrimSpace(shardFlag), "/")
+			if len(parts) == 2 {
+				if i, err := strconv.Atoi(strings.TrimSpace(parts[0])); err == nil {
+					opts.ShardIndex = i
+				}
+				if n, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil {
+					opts.ShardTotal = n
+				}
+			}
 		}
 
 		// Reset parsed flag values on cmd after extracting options to prevent sticky state across test runs.
@@ -112,6 +129,8 @@ var RunCmd = &cobra.Command{
 			_ = cmd.Flags().Set("keep-env", "false")
 			_ = cmd.Flags().Set("keep-workdir", "false")
 			_ = cmd.Flags().Set("repeat", "0")
+			_ = cmd.Flags().Set("jobs", "1")
+			_ = cmd.Flags().Set("shard", "")
 			_ = cmd.Flags().Set("json", "false")
 			_ = cmd.Flags().Set("dry-run", "false")
 			_ = cmd.Flags().Set("no-redact", "false")
@@ -402,6 +421,8 @@ func init() {
 	RunCmd.Flags().Bool("keep-workdir", false, "Leave agent changes in the eval workspace after the run (default: restored so the next run starts clean; implied by --keep-env)")
 
 	RunCmd.Flags().Int("repeat", 0, "Run each eval K times and aggregate (pass@k, pass^k, mean/sigma, flake detection); overrides repeat in eval.toml")
+	RunCmd.Flags().Int("jobs", 1, "Number of parallel eval workers for evalsets")
+	RunCmd.Flags().String("shard", "", "Shard selector i/n for CI sharding")
 	RunCmd.Flags().String("report", "", "Write reports at the target root: comma-separated markdown,json,junit")
 	RunCmd.Flags().Bool("json", false, "Print machine-readable suite results JSON to stdout")
 	RunCmd.Flags().Bool("dry-run", false, "Print the resolved plan (agent command, image, mounts, config hash) without executing")
