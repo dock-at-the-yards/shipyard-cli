@@ -19,6 +19,7 @@ import (
 	"github.com/dock-at-the-yards/shipyard-core/pkg/results"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // EngineRunFunc defines the legacy signature for the engine runner executor.
@@ -56,6 +57,31 @@ var RunCmd = &cobra.Command{
 			targetPath = strings.TrimSpace(args[0])
 		}
 
+		// Reset parsed flag values on cmd after extracting options to prevent sticky state across test runs.
+		// Registered first so even validation failures reset. Changed markers
+		// are cleared too: the shared command persists across invocations.
+		defer func() {
+			_ = cmd.Flags().Set("run-name", "")
+			_ = cmd.Flags().Set("run-id", "")
+			_ = cmd.Flags().Set("agent", "")
+			_ = cmd.Flags().Set("provider", "")
+			_ = cmd.Flags().Set("model", "")
+			_ = cmd.Flags().Set("command", "")
+			_ = cmd.Flags().Set("env", "")
+			_ = cmd.Flags().Set("keep-env", "false")
+			_ = cmd.Flags().Set("keep-workdir", "false")
+			_ = cmd.Flags().Set("repeat", "0")
+			_ = cmd.Flags().Set("jobs", "1")
+			_ = cmd.Flags().Set("retries", "0")
+			_ = cmd.Flags().Set("scenario", "")
+			_ = cmd.Flags().Set("shard", "")
+			_ = cmd.Flags().Set("json", "false")
+			_ = cmd.Flags().Set("dry-run", "false")
+			_ = cmd.Flags().Set("no-redact", "false")
+			_ = cmd.Flags().Set("report", "")
+			cmd.Flags().VisitAll(func(f *pflag.Flag) { f.Changed = false })
+		}()
+
 		runName, _ := cmd.Flags().GetString("run-name")
 		runID, _ := cmd.Flags().GetString("run-id")
 		agentFlag, _ := cmd.Flags().GetString("agent")
@@ -67,6 +93,8 @@ var RunCmd = &cobra.Command{
 		keepWorkdirFlag, _ := cmd.Flags().GetBool("keep-workdir")
 		repeatFlag, _ := cmd.Flags().GetInt("repeat")
 		jobsFlag, _ := cmd.Flags().GetInt("jobs")
+		retriesFlag, _ := cmd.Flags().GetInt("retries")
+		scenarioFlag, _ := cmd.Flags().GetString("scenario")
 		shardFlag, _ := cmd.Flags().GetString("shard")
 		jsonFlag, _ := cmd.Flags().GetBool("json")
 		dryRunFlag, _ := cmd.Flags().GetBool("dry-run")
@@ -96,6 +124,8 @@ var RunCmd = &cobra.Command{
 			KeepWorkdir:         keepWorkdirFlag || keepEnvFlag,
 			Repeat:              repeatFlag,
 			Jobs:                jobsFlag,
+			Retries:             retriesFlag,
+			ScenarioPath:        strings.TrimSpace(scenarioFlag),
 			NoRedact:            noRedactFlag,
 			Provenance: types.ProvenanceInfo{
 				CLIVersion:   cliVersion(),
@@ -104,38 +134,32 @@ var RunCmd = &cobra.Command{
 			},
 		}
 
+		// Flag validation: fail fast before any execution.
+		if opts.Jobs < 1 {
+			return shiperrs.New(shiperrs.ErrorCodeInvalidArguments,
+				fmt.Sprintf("--jobs must be >= 1 (got %d)", opts.Jobs))
+		}
+		if opts.Retries < 0 {
+			return shiperrs.New(shiperrs.ErrorCodeInvalidArguments,
+				fmt.Sprintf("--retries must be >= 0 (got %d)", opts.Retries))
+		}
+
 		// Parse --shard i/n.
 		if strings.TrimSpace(shardFlag) != "" {
 			parts := strings.Split(strings.TrimSpace(shardFlag), "/")
-			if len(parts) == 2 {
-				if i, err := strconv.Atoi(strings.TrimSpace(parts[0])); err == nil {
-					opts.ShardIndex = i
-				}
-				if n, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil {
-					opts.ShardTotal = n
-				}
+			if len(parts) != 2 {
+				return shiperrs.New(shiperrs.ErrorCodeInvalidArguments,
+					fmt.Sprintf("--shard must be i/n (got %q)", shardFlag))
 			}
+			i, ierr := strconv.Atoi(strings.TrimSpace(parts[0]))
+			n, nerr := strconv.Atoi(strings.TrimSpace(parts[1]))
+			if ierr != nil || nerr != nil || n < 1 || i < 1 || i > n {
+				return shiperrs.New(shiperrs.ErrorCodeInvalidArguments,
+					fmt.Sprintf("--shard must be i/n with 1<=i<=n, n>=1 (got %q)", shardFlag))
+			}
+			opts.ShardIndex = i
+			opts.ShardTotal = n
 		}
-
-		// Reset parsed flag values on cmd after extracting options to prevent sticky state across test runs.
-		defer func() {
-			_ = cmd.Flags().Set("run-name", "")
-			_ = cmd.Flags().Set("run-id", "")
-			_ = cmd.Flags().Set("agent", "")
-			_ = cmd.Flags().Set("provider", "")
-			_ = cmd.Flags().Set("model", "")
-			_ = cmd.Flags().Set("command", "")
-			_ = cmd.Flags().Set("env", "")
-			_ = cmd.Flags().Set("keep-env", "false")
-			_ = cmd.Flags().Set("keep-workdir", "false")
-			_ = cmd.Flags().Set("repeat", "0")
-			_ = cmd.Flags().Set("jobs", "1")
-			_ = cmd.Flags().Set("shard", "")
-			_ = cmd.Flags().Set("json", "false")
-			_ = cmd.Flags().Set("dry-run", "false")
-			_ = cmd.Flags().Set("no-redact", "false")
-			_ = cmd.Flags().Set("report", "")
-		}()
 
 		// --dry-run: resolve and print the plan, execute nothing.
 		if dryRunFlag {
@@ -164,8 +188,11 @@ var RunCmd = &cobra.Command{
 		if ActiveRunnerWithOptions != nil {
 			summary, err = ActiveRunnerWithOptions(targetPath, opts)
 		} else if ActiveRunner != nil {
-			// If options like agent/provider/env overrides are present, delegate to engine.RunWithOptions
-			if opts.AgentOverride.HasOverrides() || opts.EnvironmentOverride != "" || opts.KeepEnv || opts.Repeat > 0 || opts.NoRedact || opts.KeepWorkdir {
+			// If options like agent/provider/env overrides are present, delegate to engine.RunWithOptions.
+			// --jobs/--shard/--retries/--scenario must also take this path or
+			// they would be silently dropped by the legacy runner.
+			if opts.AgentOverride.HasOverrides() || opts.EnvironmentOverride != "" || opts.KeepEnv || opts.Repeat > 0 || opts.NoRedact || opts.KeepWorkdir ||
+				cmd.Flags().Changed("jobs") || opts.ShardTotal != 0 || opts.Retries != 0 || opts.ScenarioPath != "" {
 				summary, err = engine.RunWithOptions(targetPath, opts)
 			} else {
 				if opts.RunID != "" {
@@ -421,8 +448,10 @@ func init() {
 	RunCmd.Flags().Bool("keep-workdir", false, "Leave agent changes in the eval workspace after the run (default: restored so the next run starts clean; implied by --keep-env)")
 
 	RunCmd.Flags().Int("repeat", 0, "Run each eval K times and aggregate (pass@k, pass^k, mean/sigma, flake detection); overrides repeat in eval.toml")
-	RunCmd.Flags().Int("jobs", 1, "Number of parallel eval workers for evalsets")
-	RunCmd.Flags().String("shard", "", "Shard selector i/n for CI sharding")
+	RunCmd.Flags().Int("jobs", 1, "Number of parallel eval workers for evalsets (default 1, serial); same verdict as serial, only faster")
+	RunCmd.Flags().Int("retries", 0, "Extra attempts per eval when its verdict matches retry_on (default 0); a recovery is reported as flaked, never hidden; overrides retries in eval.toml")
+	RunCmd.Flags().String("scenario", "", "Path to a scenario.toml overriding each eval's own scenario file for this run")
+	RunCmd.Flags().String("shard", "", "Shard selector i/n for CI sharding (e.g. 1/4); merge shards with the merge command")
 	RunCmd.Flags().String("report", "", "Write reports at the target root: comma-separated markdown,json,junit")
 	RunCmd.Flags().Bool("json", false, "Print machine-readable suite results JSON to stdout")
 	RunCmd.Flags().Bool("dry-run", false, "Print the resolved plan (agent command, image, mounts, config hash) without executing")
