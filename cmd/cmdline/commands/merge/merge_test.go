@@ -9,8 +9,8 @@ import (
 	"github.com/dock-at-the-yards/shipyard-core/common/types"
 	"github.com/dock-at-the-yards/shipyard-core/pkg/results"
 
-	mergecmd "github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands/merge"
 	"github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands"
+	mergecmd "github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands/merge"
 	"github.com/spf13/cobra"
 )
 
