@@ -13,6 +13,7 @@ import (
 	_ "github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands/baseline"
 	_ "github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands/compare"
 	_ "github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands/init"
+	_ "github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands/merge"
 	_ "github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands/report"
 	runcmd "github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands/run"
 	_ "github.com/dock-at-the-yards/shipyard-cli/cmd/cmdline/commands/validate"

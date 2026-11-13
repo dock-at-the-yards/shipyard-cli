@@ -5,3 +5,8 @@ tmp/
 *.env.local
 web/dist/
 web/node_modules/
+# OpenCode local (agents symlink, commands, skills)
+.opencode/
+
+# OpenSpec (local spec artifacts)
+openspec/
